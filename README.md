@@ -35,6 +35,30 @@ cp .env.template .env
 # 编辑 .env 文件,填入你的 API 密钥
 ```
 
+### 快速开始
+
+#### 方式一：使用启动脚本（推荐）
+
+```bash
+# 启动 Agent Zero 系统
+python start.py
+```
+
+这将：
+- 检查系统健康状态
+- 验证 API 连接
+- 显示交互式菜单
+
+#### 方式二：直接运行生成的 Agent
+
+```bash
+# 1. 生成一个测试 Agent
+python tests/e2e/test_phase1_hello_world.py
+
+# 2. 运行生成的 Agent
+python run_agent.py
+```
+
 ### 运行测试
 
 ```bash
