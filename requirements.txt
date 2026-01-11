@@ -1,0 +1,40 @@
+# Agent Zero v6.0 - Core Dependencies
+
+# LLM Framework
+langchain>=0.2.0
+langgraph>=0.1.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+langchain-community>=0.2.0
+
+# Vector Database
+chromadb>=0.4.22
+
+# Document Processing
+unstructured>=0.12.0
+pymupdf>=1.23.0
+python-magic-bin>=0.4.14; sys_platform == 'win32'
+python-magic>=0.4.27; sys_platform != 'win32'
+
+# Template Engine
+jinja2>=3.1.2
+
+# Data Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# UI Framework
+streamlit>=1.30.0
+
+# Version Control
+gitpython>=3.1.40
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+httpx>=0.25.0
+tenacity>=8.2.3
+
+# Code Quality
+black>=23.12.0
+ruff>=0.1.9

@@ -1,0 +1,173 @@
+"""
+Auto-generated Agent by Agent Zero v6.0
+Generated at: {{ timestamp }}
+Agent Name: {{ agent_name }}
+Description: {{ description }}
+"""
+
+import os
+from typing import TypedDict, Annotated
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+{% if has_rag %}
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+{% endif %}
+{% if has_tools %}
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.tools import Tool
+{% endif %}
+from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
+import yaml
+
+# Load environment variables
+load_dotenv()
+
+# Load prompts from YAML
+with open("prompts.yaml", "r", encoding="utf-8") as f:
+    PROMPTS = yaml.safe_load(f)
+
+
+# State definition
+class AgentState(TypedDict):
+    """Agent state structure."""
+    messages: Annotated[list[BaseMessage], "Chat messages"]
+    {% if has_rag %}
+    context: Annotated[str, "Retrieved context"]
+    {% endif %}
+    next_action: Annotated[str, "Next action to take"]
+
+
+# Initialize LLM
+llm = ChatOpenAI(
+    model=os.getenv("RUNTIME_MODEL", "gpt-3.5-turbo"),
+    temperature=float(os.getenv("TEMPERATURE", "0.7")),
+    api_key=os.getenv("RUNTIME_API_KEY"),
+    base_url=os.getenv("RUNTIME_BASE_URL"),
+)
+
+{% if has_rag %}
+# Initialize RAG components
+embeddings = OpenAIEmbeddings(
+    api_key=os.getenv("RUNTIME_API_KEY"),
+    base_url=os.getenv("RUNTIME_BASE_URL"),
+)
+vectorstore = Chroma(
+    persist_directory="./chroma_db",
+    embedding_function=embeddings,
+)
+retriever = vectorstore.as_retriever(search_kwargs={"k": {{ rag_config.k_retrieval }}})
+{% endif %}
+
+{% if has_tools %}
+# Initialize tools
+tools = []
+{% for tool in enabled_tools %}
+# Tool: {{ tool }}
+# TODO: Implement tool initialization
+{% endfor %}
+{% endif %}
+
+
+# Node functions
+{% for node in nodes %}
+def {{ node.id }}_node(state: AgentState) -> AgentState:
+    """{{ node.id }} node implementation."""
+    {% if node.type == "llm" %}
+    messages = state["messages"]
+    system_prompt = PROMPTS["system_prompt"]
+    
+    response = llm.invoke([
+        {"role": "system", "content": system_prompt},
+        *[{"role": m.type, "content": m.content} for m in messages]
+    ])
+    
+    state["messages"].append(AIMessage(content=response.content))
+    {% elif node.type == "rag" %}
+    query = state["messages"][-1].content
+    docs = retriever.get_relevant_documents(query)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    state["context"] = context
+    
+    rag_prompt = PROMPTS["rag_prompt"].format(context=context, question=query)
+    response = llm.invoke(rag_prompt)
+    state["messages"].append(AIMessage(content=response.content))
+    {% elif node.type == "tool" %}
+    # Tool execution logic
+    pass
+    {% endif %}
+    
+    return state
+{% endfor %}
+
+
+# Conditional functions
+{% for cond_edge in conditional_edges %}
+def {{ cond_edge.condition }}(state: AgentState) -> str:
+    """Condition: {{ cond_edge.condition }}"""
+    # TODO: Implement condition logic
+    last_message = state["messages"][-1]
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "continue"
+    return "end"
+{% endfor %}
+
+
+# Build graph
+def create_graph():
+    """Create and compile the agent graph."""
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    {% for node in nodes %}
+    workflow.add_node("{{ node.id }}", {{ node.id }}_node)
+    {% endfor %}
+    
+    # Set entry point
+    workflow.set_entry_point("{{ entry_point }}")
+    
+    # Add edges
+    {% for edge in edges %}
+    workflow.add_edge("{{ edge.source }}", "{{ edge.target }}")
+    {% endfor %}
+    
+    # Add conditional edges
+    {% for cond_edge in conditional_edges %}
+    workflow.add_conditional_edges(
+        "{{ cond_edge.source }}",
+        {{ cond_edge.condition }},
+        {{ cond_edge.branches }}
+    )
+    {% endfor %}
+    
+    # Compile with checkpointer
+    memory = SqliteSaver.from_conn_string("state.db")
+    return workflow.compile(checkpointer=memory)
+
+
+# Main execution
+if __name__ == "__main__":
+    graph = create_graph()
+    
+    # Example usage
+    config = {"configurable": {"thread_id": "1"}}
+    
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["quit", "exit", "q"]:
+            break
+        
+        state = {
+            "messages": [HumanMessage(content=user_input)],
+            {% if has_rag %}
+            "context": "",
+            {% endif %}
+            "next_action": ""
+        }
+        
+        result = graph.invoke(state, config)
+        
+        print(f"Agent: {result['messages'][-1].content}")

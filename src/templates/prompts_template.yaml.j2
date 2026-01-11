@@ -1,0 +1,33 @@
+# Agent: {{ agent_name }}
+# Generated at: {{ timestamp }}
+
+system_prompt: |
+  你是一个专业的{{ agent_type }}助手。
+  {{ custom_instructions }}
+  
+  请始终保持{{ language }}语言回复。
+
+{% if has_rag %}
+rag_prompt: |
+  基于以下上下文回答问题:
+  
+  上下文:
+  {context}
+  
+  问题: {question}
+  
+  请基于上下文提供准确的答案。如果上下文中没有相关信息，请明确说明。
+{% endif %}
+
+{% if has_tools %}
+tool_prompt: |
+  你可以使用以下工具来帮助回答问题:
+  {% for tool in tools %}
+  - {{ tool }}: {{ tool_descriptions[tool] }}
+  {% endfor %}
+  
+  请根据需要选择合适的工具。
+{% endif %}
+
+error_prompt: |
+  抱歉，处理您的请求时遇到了问题。请稍后再试或换一种方式提问。
