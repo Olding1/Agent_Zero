@@ -2,10 +2,21 @@
 
 from typing import Optional, Type, Any
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
 import httpx
 import os
+
+# Optional imports for different providers
+try:
+    from langchain_openai import ChatOpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
+try:
+    from langchain_anthropic import ChatAnthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
 
 
 class BuilderAPIConfig(BaseModel):
@@ -47,6 +58,11 @@ class BuilderClient:
             Initialized LLM client
         """
         if config.provider == "openai":
+            if not HAS_OPENAI:
+                raise ImportError(
+                    "langchain-openai is not installed. "
+                    "Install it with: pip install langchain-openai"
+                )
             return ChatOpenAI(
                 model=config.model,
                 api_key=config.api_key,
@@ -56,6 +72,11 @@ class BuilderClient:
                 max_retries=config.max_retries,
             )
         elif config.provider == "anthropic":
+            if not HAS_ANTHROPIC:
+                raise ImportError(
+                    "langchain-anthropic is not installed. "
+                    "Install it with: pip install langchain-anthropic"
+                )
             return ChatAnthropic(
                 model=config.model,
                 api_key=config.api_key,
