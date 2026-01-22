@@ -1,0 +1,96 @@
+# Reflection Pattern Configuration
+# 反思模式 - 适用于需要迭代改进的任务（写作、编程等）
+
+name: reflection
+description: "生成-批评循环模式，通过迭代反思不断改进输出质量"
+
+# 默认节点配置
+default_nodes:
+  - id: generator
+    type: llm
+    role_description: "生成器，负责创建初始内容或根据反馈改进内容"
+  
+  - id: critic
+    type: llm
+    role_description: "批评者，负责评审内容并提供改进建议"
+
+# 默认边配置
+default_edges:
+  - source: generator
+    target: critic
+
+# 默认条件边配置
+default_conditional_edges:
+  - source: critic
+    condition: should_continue
+    condition_logic: |
+      # 检查是否需要继续迭代
+      iteration_count = state.get("iteration_count", 0)
+      feedback = state.get("feedback", "")
+      max_iterations = state.get("max_iterations", 3)
+      
+      # 如果未达到最大迭代次数且有改进建议，继续迭代
+      if iteration_count < max_iterations and ("improve" in feedback.lower() or "修改" in feedback):
+          return "generator"
+      return "end"
+    branches:
+      generator: generator
+      end: END
+
+# 必需的状态字段
+required_state_fields:
+  - name: messages
+    type: List[BaseMessage]
+    description: "对话历史"
+    reducer: add_messages
+  
+  - name: draft
+    type: str
+    description: "当前草稿内容"
+    default: ""
+  
+  - name: feedback
+    type: str
+    description: "批评者的反馈意见"
+    default: ""
+  
+  - name: iteration_count
+    type: int
+    description: "当前迭代次数"
+    default: 0
+  
+  - name: max_iterations
+    type: int
+    description: "最大迭代次数"
+    default: 3
+  
+  - name: is_finished
+    type: bool
+    description: "是否完成"
+    default: false
+
+# 可选的状态字段
+optional_state_fields:
+  - name: improvement_history
+    type: List[str]
+    description: "改进历史记录"
+    default: []
+
+# 模式特性
+features:
+  - iterative_improvement
+  - self_reflection
+  - quality_control
+
+# 适用场景
+use_cases:
+  - "写作任务（文章、报告、代码）"
+  - "需要多次修改的内容生成"
+  - "质量要求高的任务"
+  - "创意内容优化"
+
+# 示例
+example:
+  user_query: "帮我写一篇关于AI的文章，要求专业且易懂"
+  expected_graph: "generator <-> critic (循环最多3次) -> END"
+  expected_iterations: 2-3

@@ -1,0 +1,17 @@
+{
+  "agent_name": "AgentZeroDocAssistant",
+  "description": "一个基于本地项目文档的智能助手，能够回答关于Agent Zero项目计划书和实施计划的具体问题。",
+  "has_rag": true,
+  "task_type": "chat",
+  "language": "zh-CN",
+  "user_intent_summary": "创建一个能够回答Agent Zero项目文档问题的智能助手",
+  "file_paths": [
+    "C:\\Users\\Administrator\\Desktop\\game\\Agent_Zero\\Agent Zero项目计划书.md",
+    "C:\\Users\\Administrator\\Desktop\\game\\Agent_Zero\\Agent_Zero_详细实施计划.md"
+  ],
+  "clarification_needed": false,
+  "clarification_questions": null,
+  "status": "ready",
+  "complexity_score": 2,
+  "execution_plan": null
+}

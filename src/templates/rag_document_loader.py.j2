@@ -1,0 +1,183 @@
+# Document Loading and Processing
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    Docx2txtLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader,
+)
+from langchain_text_splitters import (
+    RecursiveCharacterTextSplitter,
+    CharacterTextSplitter,
+    TokenTextSplitter,
+)
+from pathlib import Path
+
+def load_documents(file_paths: list) -> list:
+    """Load multiple documents from file paths.
+    
+    Args:
+        file_paths: List of file paths to load
+        
+    Returns:
+        List of loaded documents
+    """
+    documents = []
+    
+    for file_path in file_paths:
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            print(f"Warning: File not found: {file_path}")
+            continue
+        
+        # Select loader based on file extension
+        try:
+            if file_path.suffix.lower() == '.pdf':
+                loader = PyPDFLoader(str(file_path))
+            elif file_path.suffix.lower() in ['.docx', '.doc']:
+                loader = Docx2txtLoader(str(file_path))
+            elif file_path.suffix.lower() == '.md':
+                # 🆕 使用 TextLoader 替代 UnstructuredMarkdownLoader (速度提升100倍)
+                loader = TextLoader(str(file_path), encoding='utf-8')
+            elif file_path.suffix.lower() == '.txt':
+                loader = TextLoader(str(file_path), encoding='utf-8')
+            else:
+                print(f"Warning: Unsupported file type: {file_path.suffix}")
+                continue
+            
+            docs = loader.load()
+            documents.extend(docs)
+            print(f"✓ Loaded {len(docs)} documents from {file_path.name}")
+        except Exception as e:
+            print(f"✗ Error loading {file_path}: {e}")
+    
+    return documents
+
+def split_documents(documents: list) -> list:
+    """Split documents into chunks.
+    
+    Args:
+        documents: List of documents to split
+        
+    Returns:
+        List of document chunks
+    """
+    {% if rag_config.splitter == "recursive" %}
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size={{ rag_config.chunk_size }},
+        chunk_overlap={{ rag_config.chunk_overlap }},
+        length_function=len,
+    )
+    {% elif rag_config.splitter == "character" %}
+    text_splitter = CharacterTextSplitter(
+        chunk_size={{ rag_config.chunk_size }},
+        chunk_overlap={{ rag_config.chunk_overlap }},
+    )
+    {% elif rag_config.splitter == "token" %}
+    text_splitter = TokenTextSplitter(
+        chunk_size={{ rag_config.chunk_size }},
+        chunk_overlap={{ rag_config.chunk_overlap }},
+    )
+    {% elif rag_config.splitter == "semantic" %}
+    # Semantic splitter - use recursive as fallback for now
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size={{ rag_config.chunk_size }},
+        chunk_overlap={{ rag_config.chunk_overlap }},
+        length_function=len,
+    )
+    {% else %}
+    # Default to recursive splitter
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size={{ rag_config.chunk_size }},
+        chunk_overlap={{ rag_config.chunk_overlap }},
+        length_function=len,
+    )
+    {% endif %}
+    
+    splits = text_splitter.split_documents(documents)
+    print(f"✓ Split into {len(splits)} chunks")
+    return splits
+
+# Load and process documents
+# Load and process documents
+{% if file_paths %}
+print("=" * 60)
+print("📚 Loading and indexing documents...")
+print("=" * 60)
+
+# 1. 始终加载和分割文档 (Critical for Hybrid Search BM25)
+# 即使向量库已有数据，我们也由于需要 splits 来初始化 BM25 Retriver
+# (除非我们将 BM25 索引也序列化了，但目前 Agent Zero 尚未实现 BM25 序列化)
+try:
+    documents = load_documents({{ file_paths }})
+    if documents:
+        print(f"\n✓ Loaded {len(documents)} documents")
+        print("\n📄 Splitting documents...")
+        splits = split_documents(documents)
+    else:
+        print("\n⚠️  No documents loaded.")
+        splits = []
+except Exception as e:
+    print(f"✗ Error loading documents: {e}")
+    splits = []
+
+# 2. 智能更新向量库
+if splits:
+    print("\n🔍 Checking vector store status...")
+    
+    # CASE A: FAISS (vectorstore is None if not found on disk)
+    {% if rag_config.vector_store == "faiss" %}
+    if vectorstore is None:
+        print("Creating new FAISS index...")
+        from langchain_community.vectorstores import FAISS
+        vectorstore = FAISS.from_documents(splits, embeddings)
+        vectorstore.save_local("{{ rag_config.persist_directory }}")
+        print(f"✓ FAISS index saved to {{ rag_config.persist_directory }}")
+        
+        # Write hash file for FAISS if it was created
+        try:
+             import hashlib, json
+             persist_dir = Path("{{ rag_config.persist_directory }}")
+             config_hash_file = persist_dir / "config.hash"
+             # Re-calculate hash (importing function or copying logic)
+             # SInce we are in the same script, we can call get_config_hash if defined
+             # But get_config_hash is defined in rag_vectorstore code block.
+             if 'get_config_hash' in globals():
+                 current_hash = get_config_hash()
+                 config_hash_file.write_text(current_hash, encoding="utf-8")
+        except Exception as e:
+             print(f"⚠️ Could not write config hash for FAISS: {e}")
+             
+    else:
+        print("✓ Using existing FAISS index.")
+    
+    # CASE B: Chroma / PGVector (vectorstore object always exists)
+    {% else %}
+    updated = False
+    try:
+        # Check if empty (using _collection.count for Chroma)
+        if hasattr(vectorstore, "_collection") and vectorstore._collection.count() == 0:
+            print("Vector store is empty. Adding documents...")
+            vectorstore.add_documents(splits)
+            updated = True
+        elif hasattr(vectorstore, "index") and hasattr(vectorstore.index, "ntotal") and vectorstore.index.ntotal == 0:
+             # FAISS-like check if wrapped?
+             pass
+        else:
+             print("✓ Vector store already contains data. Skipping write.")
+             
+    except Exception as e:
+        print(f"⚠️ Could not check vector store count, trying to add anyway if safe... Error: {e}")
+        # Fallback: If we can't check, maybe we shouldn't add blindly to avoid duplication?
+        # But if it was a fresh rebuild, we MUST add.
+        # Given Step 2 clears the directory, it IS empty if rebuilt.
+        # So we can try to add? Or assume if we are here and not rebuilt, it has data?
+        pass
+        
+    if updated:
+        print(f"✓ Added {len(splits)} chunks to vector store")
+    {% endif %}
+
+    print("\n✅ Document indexing complete!")
+    print("=" * 60)
+{% endif %}

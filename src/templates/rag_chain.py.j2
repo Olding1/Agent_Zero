@@ -1,0 +1,55 @@
+# RAG Chain
+from langchain_classic.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
+
+# RAG Prompt Template
+rag_prompt_template = """使用以下上下文来回答问题。如果你不知道答案,就说不知道,不要试图编造答案。
+
+上下文:
+{context}
+
+问题: {question}
+
+回答:"""
+
+RAG_PROMPT = PromptTemplate(
+    template=rag_prompt_template,
+    input_variables=["context", "question"]
+)
+
+# Create RAG Chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",  # Options: "stuff", "map_reduce", "refine"
+    retriever=retriever,
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": RAG_PROMPT}
+)
+
+def ask_question(question: str) -> dict:
+    """Ask a question using RAG.
+    
+    Args:
+        question: User's question
+        
+    Returns:
+        Dictionary with answer and source documents
+    """
+    try:
+        result = qa_chain({"query": question})
+        
+        return {
+            "answer": result["result"],
+            "sources": [
+                {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata
+                }
+                for doc in result.get("source_documents", [])
+            ]
+        }
+    except Exception as e:
+        return {
+            "answer": f"Error processing question: {e}",
+            "sources": []
+        }

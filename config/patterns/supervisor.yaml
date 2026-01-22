@@ -1,0 +1,103 @@
+# Supervisor Pattern Configuration
+# 主管模式 - 适用于需要多工具协作的复杂任务
+
+name: supervisor
+description: "主管调度模式，由一个主管节点协调多个工作节点，适用于多工具协作场景"
+
+# 默认节点配置
+default_nodes:
+  - id: supervisor
+    type: llm
+    role_description: "主管，负责任务分解、工具选择和结果汇总"
+  
+  # 工具节点将根据 tools_config 动态添加
+
+# 默认边配置
+default_edges: []
+
+# 默认条件边配置
+default_conditional_edges:
+  - source: supervisor
+    condition: route_to_worker
+    condition_logic: |
+      # 主管决定下一步：选择工具或结束
+      next_action = state.get("next_action", "")
+      
+      if next_action == "FINISH":
+          return "end"
+      
+      # 返回工具名称
+      return next_action
+    branches:
+      # 动态分支，根据可用工具生成
+      # 例如: {"calculator": "tool_calculator", "search": "tool_search", "end": "END"}
+      end: END
+  
+  # 工具执行后返回主管
+  # 这些边将根据实际工具动态添加
+
+# 必需的状态字段
+required_state_fields:
+  - name: messages
+    type: List[BaseMessage]
+    description: "对话历史"
+    reducer: add_messages
+  
+  - name: next_action
+    type: str
+    description: "下一步动作（工具名或FINISH）"
+    default: ""
+  
+  - name: tool_results
+    type: Dict[str, Any]
+    description: "工具执行结果"
+    default: {}
+  
+  - name: is_finished
+    type: bool
+    description: "是否完成"
+    default: false
+
+# 可选的状态字段
+optional_state_fields:
+  - name: task_plan
+    type: List[str]
+    description: "任务执行计划"
+    default: []
+  
+  - name: execution_log
+    type: List[str]
+    description: "执行日志"
+    default: []
+
+# 模式特性
+features:
+  - multi_tool_coordination
+  - dynamic_routing
+  - centralized_control
+
+# 适用场景
+use_cases:
+  - "需要多个工具配合的任务"
+  - "复杂的数据处理流程"
+  - "需要动态决策的任务"
+  - "多步骤工作流"
+
+# 工具集成说明
+tool_integration:
+  description: "主管模式需要与 ToolsConfig 配合使用"
+  dynamic_nodes: true
+  dynamic_edges: true
+  
+  # 每个工具会生成:
+  # 1. 一个 tool 类型的节点
+  # 2. supervisor -> tool 的条件分支
+  # 3. tool -> supervisor 的返回边
+
+# 示例
+example:
+  user_query: "查询今天的天气，然后计算明天的温度会比今天高多少"
+  expected_graph: "supervisor -> [search_tool, calculator_tool] -> supervisor -> END"
+  required_tools:
+    - tavily_search
+    - calculator

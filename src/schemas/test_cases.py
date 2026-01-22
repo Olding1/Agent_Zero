@@ -1,6 +1,6 @@
 """Test cases schema."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 from enum import Enum
 
@@ -42,10 +42,8 @@ class TestSuite(BaseModel):
 
     cases: List[TestCase] = Field(..., description="List of test cases")
 
-    class Config:
-        """Pydantic configuration."""
-
-        json_schema_extra = {
+model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "cases": [
                     {
@@ -65,3 +63,4 @@ class TestSuite(BaseModel):
                 ]
             }
         }
+    )

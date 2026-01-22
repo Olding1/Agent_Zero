@@ -1,0 +1,40 @@
+# Embedding Model Initialization
+# Support runtime configuration via environment variables
+embedding_provider = os.getenv("EMBEDDING_PROVIDER", "{{ rag_config.embedding_provider }}").lower()
+embedding_model = os.getenv("EMBEDDING_MODEL_NAME", "{{ rag_config.embedding_model_name }}")
+
+if embedding_provider == "openai":
+    from langchain_openai import OpenAIEmbeddings
+    
+    embeddings = OpenAIEmbeddings(
+        model=embedding_model,
+        api_key=os.getenv("EMBEDDING_API_KEY") or os.getenv("RUNTIME_API_KEY"),
+        base_url=os.getenv("EMBEDDING_BASE_URL") or os.getenv("RUNTIME_BASE_URL"),
+        {% if rag_config.embedding_dimension %}
+        dimensions={{ rag_config.embedding_dimension }},
+        {% endif %}
+    )
+    print(f"✓ Using OpenAI embeddings: {embedding_model}")
+
+elif embedding_provider == "huggingface":
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+    
+    embeddings = HuggingFaceEmbeddings(
+        model_name=embedding_model,
+        model_kwargs={'device': 'cpu'},  # Change to 'cuda' for GPU
+        encode_kwargs={'normalize_embeddings': True}
+    )
+    print(f"✓ Using HuggingFace embeddings: {embedding_model}")
+
+elif embedding_provider == "ollama":
+    from langchain_ollama import OllamaEmbeddings
+    
+    embeddings = OllamaEmbeddings(
+        model=embedding_model,
+        base_url=os.getenv("EMBEDDING_BASE_URL", "http://localhost:11434"),
+    )
+    print(f"✓ Using Ollama embeddings: {embedding_model}")
+
+else:
+    raise ValueError(f"Unsupported embedding provider: {embedding_provider}")
+

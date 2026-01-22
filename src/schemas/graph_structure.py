@@ -1,7 +1,9 @@
 """Graph structure schema for LangGraph topology."""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import List, Dict, Optional, Literal
+from .pattern import PatternConfig
+from .state_schema import StateSchema
 
 
 class NodeDef(BaseModel):
@@ -13,6 +15,9 @@ class NodeDef(BaseModel):
     id: str = Field(..., description="Unique node identifier")
     type: Literal["llm", "tool", "rag", "conditional", "custom"] = Field(
         ..., description="Node type"
+    )
+    role_description: Optional[str] = Field(
+        None, description="Role description for prompt generation"
     )
     config: Optional[Dict] = Field(default=None, description="Node configuration")
 
@@ -35,6 +40,9 @@ class ConditionalEdgeDef(BaseModel):
 
     source: str = Field(..., description="Source node ID")
     condition: str = Field(..., description="Condition function name")
+    condition_logic: Optional[str] = Field(
+        None, description="Condition logic expression for code generation"
+    )
     branches: Dict[str, str] = Field(
         ..., description="Branch mapping {condition_value: target_node}"
     )
@@ -46,7 +54,12 @@ class GraphStructure(BaseModel):
     Defines the entire LangGraph topology including nodes, edges,
     and conditional branches.
     """
-
+    
+    # New fields for three-step design method
+    pattern: PatternConfig = Field(..., description="Design pattern configuration")
+    state_schema: StateSchema = Field(..., description="State structure definition")
+    
+    # Original fields
     nodes: List[NodeDef] = Field(..., min_length=1, description="Node list")
     edges: List[EdgeDef] = Field(default_factory=list, description="Regular edge list")
     conditional_edges: List[ConditionalEdgeDef] = Field(
@@ -87,10 +100,8 @@ class GraphStructure(BaseModel):
 
         return self
 
-    class Config:
-        """Pydantic configuration."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "nodes": [
                     {"id": "agent", "type": "llm"},
@@ -107,3 +118,4 @@ class GraphStructure(BaseModel):
                 "entry_point": "agent",
             }
         }
+    )

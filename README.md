@@ -84,15 +84,32 @@ Agent_Zero/
 
 ## 📖 开发路线图
 
-- [x] **阶段一 (Week 1-2)**: 内核 MVP
+- [x] **阶段一 (Week 1-2)**: 内核 MVP ✅
   - [x] JSON Schema 体系
   - [x] Compiler 编译器
   - [x] Env Manager 环境管家
-  - [ ] API 双轨配置
-  - [ ] Hello World Agent 联调
+  - [x] API 双轨配置
+  - [x] Hello World Agent 联调
 
-- [ ] **阶段二 (Week 3-4)**: 数据流与工具
-- [ ] **阶段三 (Week 5-7)**: 闭环与进化
+- [x] **阶段二 (Week 3-4)**: 数据流与工具 ✅
+  - [x] **Week 3: RAG 管道**
+    - [x] PM 需求分析师
+    - [x] Profiler 数据体检
+    - [x] RAG Builder RAG策略装配
+    - [x] Graph Designer 图结构设计
+    - [x] E2E 测试验证
+  - [x] **Week 4: 工具系统**
+    - [x] 工具注册表 (5个预置工具)
+    - [x] Tool Selector
+    - [x] E2E 测试验证
+
+- [ ] **阶段三 (Week 5-7)**: 闭环与进化 (下一步)
+  - [ ] Week 5: 测试与执行
+    - [ ] Test Generator
+    - [ ] Runner
+    - [ ] Judge
+  - [ ] Week 6-7: MCP 集成与 Git 管理
+
 - [ ] **阶段四 (Week 8-9)**: 产品化
 
 ## 📝 许可证

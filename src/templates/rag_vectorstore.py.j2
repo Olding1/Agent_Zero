@@ -1,0 +1,104 @@
+# Vector Store Initialization
+import shutil
+import hashlib
+import json
+from pathlib import Path
+import os
+
+def get_config_hash():
+    """计算关键配置的指纹 (Runtime)"""
+    # [v7.2 Update] 动态获取运行时配置, 而不是使用编译时硬编码的默认值
+    config = CONFIG_LOADER.load_rag_config()
+    
+    key_params = {
+        "chunk_size": config.get("chunk_size"),
+        "chunk_overlap": config.get("chunk_overlap"),
+        "splitter": config.get("splitter"),
+        "embedding_model": config.get("embedding_model_name")
+    }
+    return hashlib.md5(json.dumps(key_params, sort_keys=True).encode()).hexdigest()
+
+def init_vectorstore():
+    print("🔄 Initializing Vector Store...")
+    persist_dir = "{{ rag_config.persist_directory or './chroma_db' }}"
+    config_hash_file = Path(persist_dir) / "config.hash"
+    
+    current_hash = get_config_hash()
+    
+    # 检查是否需要重建
+    should_rebuild = False
+    if Path(persist_dir).exists():
+        if not config_hash_file.exists():
+            # 旧版本没有 hash 文件，但目录存在 -> 可能是旧数据，安全起见重建，或者保留?
+            # 策略：为了稳健，视为脏数据重建
+            print("⚠️ No config hash found in existing vector store. Marking for rebuild.")
+            should_rebuild = True 
+        else:
+            stored_hash = config_hash_file.read_text("utf-8").strip()
+            if stored_hash != current_hash:
+                print(f"♻️ [RAG] Configuration changed (Hash Mismatch). Rebuilding vector store...")
+                should_rebuild = True
+            else:
+                print("✅ Configuration match. Using existing vector store.")
+    
+    if should_rebuild and Path(persist_dir).exists():
+        try:
+            # 对于 Chroma/FAISS 本地存储，直接删除目录
+            # PGVector 需要 drop table (这里简化处理，暂只处理文件型)
+            {% if rag_config.vector_store != "pgvector" %}
+            shutil.rmtree(persist_dir) 
+            print("✅ Old vector store cleaned.")
+            {% else %}
+            print("⚠️ PGVector rebuild not fully supported automatically yet.")
+            {% endif %}
+        except Exception as e:
+            print(f"⚠️ Failed to clean old vector store: {e}")
+
+    # Initialize Vector Store
+    {% if rag_config.vector_store == "chroma" %}
+    from langchain_community.vectorstores import Chroma
+    
+    # Ensure directory exists (Chroma might create it, but good to be safe for hash file)
+    if not Path(persist_dir).exists():
+         Path(persist_dir).mkdir(parents=True, exist_ok=True)
+
+    vs = Chroma(
+        collection_name="{{ rag_config.collection_name or ((agent_name | sanitize_collection_name) + '_docs') }}",
+        embedding_function=embeddings,
+        persist_directory=persist_dir
+    )
+    
+    {% elif rag_config.vector_store == "faiss" %}
+    from langchain_community.vectorstores import FAISS
+    
+    # FAISS will be initialized after loading documents if it doesn't exist
+    if Path(persist_dir).exists() and (Path(persist_dir) / "index.faiss").exists():
+        vs = FAISS.load_local(persist_dir, embeddings, allow_dangerous_deserialization=True)
+    else:
+        vs = None  # Will be created from documents
+    
+    {% elif rag_config.vector_store == "pgvector" %}
+    from langchain_community.vectorstores import PGVector
+    
+    CONNECTION_STRING = os.getenv("PGVECTOR_CONNECTION_STRING")
+    if not CONNECTION_STRING:
+        raise ValueError("PGVECTOR_CONNECTION_STRING environment variable is required for pgvector")
+    
+    vs = PGVector(
+        collection_name="{{ rag_config.collection_name or ((agent_name | sanitize_collection_name) + '_docs') }}",
+        connection_string=CONNECTION_STRING,
+        embedding_function=embeddings,
+    )
+    {% endif %}
+    
+    # Write new hash
+    if not config_hash_file.exists():
+         try:
+             Path(persist_dir).mkdir(parents=True, exist_ok=True)
+             config_hash_file.write_text(current_hash, encoding="utf-8")
+         except Exception as e:
+             print(f"⚠️ Could not write config hash: {e}")
+             
+    return vs
+
+vectorstore = init_vectorstore()

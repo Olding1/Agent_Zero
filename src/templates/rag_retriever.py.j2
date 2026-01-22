@@ -1,0 +1,93 @@
+# Retriever Configuration (v7.0 Elastic Retriever)
+# 这个文件现在生成通用的逻辑，具体的检索策略由 rag_config.json 运行时决定
+
+def get_retriever():
+    """工厂函数：根据当前配置动态构建检索器管道 (Elastic Pipeline)"""
+    # 1. 动态加载配置
+    config = CONFIG_LOADER.load_rag_config()
+    
+    k = config.get("k_retrieval", 4)
+    chunk_size = config.get("chunk_size", 1000) # Used by splitter if re-splitting needed
+    
+    print(f"🔍 [RAG] 构建检索器: k={k}, Hybrid={config.get('enable_hybrid_search')}, Rerank={config.get('reranker_enabled')}")
+    
+    # 2. 基础向量检索 (Vector Store)
+    # ------------------------------------------------
+    search_type = config.get("search_type", "similarity")
+    search_kwargs = {"k": k}
+    
+    if search_type == "similarity_score_threshold":
+        search_kwargs["score_threshold"] = config.get("score_threshold", 0.5)
+    elif search_type == "mmr":
+        search_kwargs["fetch_k"] = config.get("fetch_k", 20)
+        search_kwargs["lambda_mult"] = config.get("lambda_mult", 0.5)
+        
+    base_retriever = vectorstore.as_retriever(
+        search_type=search_type,
+        search_kwargs=search_kwargs
+    )
+    
+    # 3. 混合检索层 (Hybrid Search Layer)
+    # ------------------------------------------------
+    # 只要 config 开启，且依赖存在，就自动激活
+    if config.get("enable_hybrid_search", False):
+        try:
+            from langchain_community.retrievers import BM25Retriever
+            from langchain.retrievers import EnsembleRetriever
+            
+            # 使用全局 splits (假设在 rag_document_loader 中定义)
+            # 如果是运行时加载，可能需要重新读取 documents (这里假设 loaded_docs/splits 存在且持久化不太现实，
+            # 实际上 BM25 需要重新构建索引。
+            # 为了简化，我们假设 `splits` 变量在 agent.py 上下文中可用。
+            # 注意: 大量文档 rebuild BM25 会很慢，建议只在小文档集使用，或使用持久化 BM25 (进阶)
+            if 'splits' in globals() and splits:
+                bm25 = BM25Retriever.from_documents(splits)
+                bm25.k = k
+                
+                base_retriever = EnsembleRetriever(
+                    retrievers=[base_retriever, bm25],
+                    weights=[
+                        config.get("vector_weight", 0.5), 
+                        config.get("bm25_weight", 0.5)
+                    ]
+                )
+                print("✅ [RAG] 混合检索已激活 (Vector + BM25)")
+            else:
+                print("⚠️ [RAG] 无法激活混合检索: 未找到文档切片 (splits)")
+        except ImportError:
+            print("⚠️ [RAG] 未安装 rank_bm25，降级为纯向量检索")
+        except Exception as e:
+            print(f"⚠️ [RAG] 混合检索初始化失败: {e}")
+
+    # 4. 重排序层 (Reranking Layer)
+    # ------------------------------------------------
+    if config.get("reranker_enabled", False):
+        try:
+            # 优先使用 Flashrank (轻量级)
+            from langchain.retrievers import ContextualCompressionRetriever
+            from langchain.retrievers.document_compressors import FlashrankRerank
+            
+            # [v7.2 Update] Noise Filter
+            # We treat 'k' as the candidate pool. We only keep the Top 10 most relevant.
+            final_top_n = min(k, 10)
+            
+            compressor = FlashrankRerank(
+                top_n=final_top_n
+            )
+            
+            final_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor,
+                base_retriever=base_retriever
+            )
+            print("✅ [RAG] 重排序已激活 (Flashrank)")
+            return final_retriever
+            
+        except ImportError:
+             print("⚠️ [RAG] 未安装 flashrank，跳过重排序")
+        except Exception as e:
+             print(f"⚠️ [RAG] 重排序初始化失败: {e}")
+    
+    return base_retriever
+
+# 初始化全局 retriever
+retriever = get_retriever()

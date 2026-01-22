@@ -57,11 +57,11 @@ def main():
         if main_env.exists():
             print(f"\n📋 Copying .env configuration from main project...")
             try:
-                # Read main .env and extract Runtime API settings
+                # Read main .env and extract Runtime API and Embedding settings
                 with open(main_env, 'r', encoding='utf-8') as f:
                     main_content = f.read()
                 
-                # Create agent .env with Runtime API settings
+                # Create agent .env with Runtime API and Embedding settings
                 agent_env_content = f"""# Agent Runtime Configuration
 # Auto-copied from main project
 
@@ -72,12 +72,19 @@ def main():
                     if line.strip().startswith('RUNTIME_'):
                         agent_env_content += line + '\n'
                 
+                # Add Embedding Configuration section
+                agent_env_content += "\n# Embedding API Configuration\n"
+                for line in main_content.split('\n'):
+                    if line.strip().startswith('EMBEDDING_') or (line.strip().startswith('#') and 'EMBEDDING' in line):
+                        agent_env_content += line + '\n'
+                
                 # Write to agent .env
                 with open(env_file, 'w', encoding='utf-8') as f:
                     f.write(agent_env_content)
                 
                 print(f"   ✓ Created {env_file}")
                 print(f"   ✓ Copied Runtime API configuration")
+                print(f"   ✓ Copied Embedding API configuration")
                 
             except Exception as e:
                 print(f"   ⚠️  Failed to copy .env: {e}")

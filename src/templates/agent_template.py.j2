@@ -3,18 +3,18 @@ Auto-generated Agent by Agent Zero v6.0
 Generated at: {{ timestamp }}
 Agent Name: {{ agent_name }}
 Description: {{ description }}
+Pattern: {{ pattern.pattern_type.value }}
 """
 
 import os
-from typing import TypedDict, Annotated
+import json
+from pathlib import Path
+from datetime import datetime
+from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
-{% if has_rag %}
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-{% endif %}
+from langgraph.graph.message import add_messages
 {% if has_tools %}
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.tools import Tool
@@ -30,18 +30,171 @@ load_dotenv()
 with open("prompts.yaml", "r", encoding="utf-8") as f:
     PROMPTS = yaml.safe_load(f)
 
+# ==================== 核心：动态配置加载器 (v7.0 Dynamic Core) ====================
+class ConfigLoader:
+    """动态读取 JSON 配置,支持热更新"""
+    def __init__(self):
+        self.base_dir = Path(__file__).parent
+        self.last_mtime = 0
+        self._rag_config_cache = {}
+        
+    def load_rag_config(self) -> Dict[str, Any]:
+        """每次调用检查文件修改时间,实现热加载"""
+        config_path = self.base_dir / "rag_config.json"
+        
+        # 编译时的默认值 (Fallback)
+        defaults = {{ rag_config.model_dump() if rag_config else {} }}
+        
+        if not config_path.exists():
+            return defaults
+            
+        try:
+            current_mtime = config_path.stat().st_mtime
+            if current_mtime > self.last_mtime:
+                # File changed, reload
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    self._rag_config_cache = {**defaults, **json.load(f)}
+                self.last_mtime = current_mtime
+                print(f"🔄 [Config] RAG 配置已热更新 (mtime: {current_mtime})")
+            return self._rag_config_cache
+        except Exception as e:
+            print(f"⚠️ Config load failed, using cache/defaults: {e}")
+            return self._rag_config_cache or defaults
 
-# State definition
+# 全局单例
+CONFIG_LOADER = ConfigLoader()
+
+
+
+# ==================== Trace Manager (Phase 4 - External Storage) ====================
+class TraceManager:
+    """执行轨迹管理器 - 负责外部存储,避免 Context Window 爆炸
+    
+    优化点:
+    - AgentState 中只存 trace_file 路径,不存完整内容
+    - 详细 trace 存到 .trace/ 目录
+    - 大文档存到单独文件 (.trace/docs/)
+    """
+    
+    def __init__(self, agent_dir: Path = None):
+        if agent_dir is None:
+            agent_dir = Path(__file__).parent
+        self.trace_dir = agent_dir / ".trace"
+        self.trace_dir.mkdir(exist_ok=True)
+        self.current_trace_file = None
+        self.trace_entries = []
+    
+    def start_new_trace(self) -> str:
+        """开始新的 trace 记录
+        
+        Returns:
+            trace 文件的相对路径 (例如: ".trace/run_20260115_123456.json")
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"run_{timestamp}.json"
+        self.current_trace_file = self.trace_dir / filename
+        self.trace_entries = []
+        return str(self.current_trace_file.relative_to(Path.cwd()))
+    
+    def add_entry(self, entry: Dict[str, Any]):
+        """添加 trace 条目 (只在内存中,不立即写入文件)"""
+        self.trace_entries.append(entry)
+    
+    def save(self):
+        """保存 trace 到文件"""
+        if self.current_trace_file:
+            with open(self.current_trace_file, 'w', encoding='utf-8') as f:
+                json.dump(self.trace_entries, f, indent=2, ensure_ascii=False)
+    
+    def load(self, trace_file: str) -> List[Dict]:
+        """加载 trace (用于测试)
+        
+        Args:
+            trace_file: trace 文件路径 (相对或绝对)
+        
+        Returns:
+            完整的 trace 条目列表
+        """
+        trace_path = Path(trace_file)
+        if not trace_path.is_absolute():
+            trace_path = Path.cwd() / trace_path
+        
+        with open(trace_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+
+def _save_docs_to_file(docs: List, step: int) -> str:
+    """保存文档到单独文件 (避免 trace 文件过大)
+    
+    Args:
+        docs: 文档列表
+        step: 当前步骤编号
+    
+    Returns:
+        文档文件的相对路径
+    """
+    docs_dir = Path(__file__).parent / ".trace" / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    
+    filename = f"step_{step}_docs.json"
+    filepath = docs_dir / filename
+    
+    # 提取文档内容
+    doc_contents = []
+    for doc in docs:
+        if hasattr(doc, 'page_content'):
+            doc_contents.append(doc.page_content)
+        else:
+            doc_contents.append(str(doc))
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(doc_contents, f, ensure_ascii=False, indent=2)
+    
+    return str(filepath.relative_to(Path.cwd()))
+
+
+# 全局 trace manager
+_trace_manager = TraceManager()
+
+
+# ==================== State Definition ====================
+{% if state_schema %}
+class AgentState(TypedDict):
+    """Agent state structure - Auto-generated from state schema.
+    
+    Pattern: {{ pattern.pattern_type.value }}
+    {% if pattern.description %}
+    {{ pattern.description }}
+    {% endif %}
+    """
+{% for field in state_schema.fields %}
+    {% if field.reducer %}
+    {{ field.name }}: Annotated[{{ field.type.value }}, {{ field.reducer }}]{% if field.description %}  # {{ field.description }}{% endif %}
+
+    {% else %}
+    {{ field.name }}: {{ field.type.value }}{% if field.description %}  # {{ field.description }}{% endif %}
+
+    {% endif %}
+{% endfor %}
+    # 🆕 Phase 4: 外部 Trace 存储 (只存路径,不存完整内容)
+    trace_file: Optional[str]  # 例如: ".trace/run_20260115_123456.json"
+
+{% else %}
+# Fallback state definition
 class AgentState(TypedDict):
     """Agent state structure."""
-    messages: Annotated[list[BaseMessage], "Chat messages"]
+    messages: Annotated[List[BaseMessage], add_messages]
     {% if has_rag %}
-    context: Annotated[str, "Retrieved context"]
+    context: str
+    retrieved_docs: List[str]
     {% endif %}
-    next_action: Annotated[str, "Next action to take"]
+    is_finished: bool
+    # 🆕 Phase 4: 外部 Trace 存储
+    trace_file: Optional[str]
+{% endif %}
 
 
-# Initialize LLM
+# ==================== LLM Initialization ====================
 llm = ChatOpenAI(
     model=os.getenv("RUNTIME_MODEL", "gpt-3.5-turbo"),
     temperature=float(os.getenv("TEMPERATURE", "0.7")),
@@ -50,20 +203,22 @@ llm = ChatOpenAI(
 )
 
 {% if has_rag %}
-# Initialize RAG components
-embeddings = OpenAIEmbeddings(
-    api_key=os.getenv("RUNTIME_API_KEY"),
-    base_url=os.getenv("RUNTIME_BASE_URL"),
-)
-vectorstore = Chroma(
-    persist_directory="./chroma_db",
-    embedding_function=embeddings,
-)
-retriever = vectorstore.as_retriever(search_kwargs={"k": {{ rag_config.k_retrieval }}})
+# ==================== RAG Components ====================
+
+{% include 'rag_embedding.py.j2' %}
+
+{% include 'rag_vectorstore.py.j2' %}
+
+{% include 'rag_document_loader.py.j2' %}
+
+{% include 'rag_retriever.py.j2' %}
+
+{% include 'rag_chain.py.j2' %}
+
 {% endif %}
 
 {% if has_tools %}
-# Initialize tools
+# ==================== Tools Initialization ====================
 tools = []
 {% for tool in enabled_tools %}
 # Tool: {{ tool }}
@@ -72,102 +227,383 @@ tools = []
 {% endif %}
 
 
-# Node functions
+# ==================== Node Functions ====================
 {% for node in nodes %}
-def {{ node.id }}_node(state: AgentState) -> AgentState:
-    """{{ node.id }} node implementation."""
+def {{ node.id }}_node(state: AgentState) -> Dict[str, Any]:
+    """{{ node.id }} node implementation.
+    {% if node.role_description %}
+    Role: {{ node.role_description }}
+    {% endif %}
+    Type: {{ node.type }}
+    """
+    # 🆕 Phase 4: 创建 trace entry (只存元数据)
+    trace_entry = {
+        "step": len(_trace_manager.trace_entries) + 1,
+        "node_id": "{{ node.id }}",
+        "node_type": "{{ node.type }}",
+        "timestamp": datetime.now().isoformat()
+    }
+    
     {% if node.type == "llm" %}
+    {% if node.config and node.config.get('is_router') %}
+    # === Intent Router Node (v7.2 Semantic Routing) ===
     messages = state["messages"]
-    system_prompt = PROMPTS["system_prompt"]
+    system_prompt = """{{ node.role_description }}"""
+    
+    # 只传入用户的最后一条消息
+    user_query = messages[-1].content if messages else ""
     
     response = llm.invoke([
         {"role": "system", "content": system_prompt},
-        *[{"role": m.type, "content": m.content} for m in messages]
+        {"role": "user", "content": user_query}
     ])
     
-    state["messages"].append(AIMessage(content=response.content))
-    {% elif node.type == "rag" %}
-    query = state["messages"][-1].content
-    docs = retriever.get_relevant_documents(query)
-    context = "\n\n".join([doc.page_content for doc in docs])
-    state["context"] = context
+    decision = response.content.strip().upper()
+    print(f"🚦 [Router] User: '{user_query[:50]}...' -> Decision: {decision}")
     
-    rag_prompt = PROMPTS["rag_prompt"].format(context=context, question=query)
-    response = llm.invoke(rag_prompt)
-    state["messages"].append(AIMessage(content=response.content))
-    {% elif node.type == "tool" %}
-    # Tool execution logic
-    pass
+    # 🔥 关键: 保留输出用于条件判断,同时存入专用字段
+    trace_entry.update({
+        "action": "intent_routing",
+        "user_query": user_query[:100],
+        "decision": decision
+    })
+    _trace_manager.add_entry(trace_entry)
+    
+    return {
+        "messages": [response],  # 🆕 保留输出用于条件判断
+        "router_decision": decision,  # 存入专用字段
+        "trace_file": state.get("trace_file")
+    }
+    
+    {% else %}
+    # === Regular LLM Node ===
+    messages = state["messages"]
+    {% if node.role_description %}
+    system_prompt = """{{ node.role_description }}"""
+    {% else %}
+    system_prompt = PROMPTS.get("system_prompt", "You are a helpful AI assistant.")
     {% endif %}
     
+    response = llm.invoke([
+        {"role": "system", "content": system_prompt},
+        *messages
+    ])
+    
+    # 🆕 记录 LLM 调用 (只存长度和预览,不存完整内容)
+    trace_entry.update({
+        "action": "llm_call",
+        "input_length": len(messages[-1].content) if messages else 0,
+        "output_length": len(response.content),
+        "output_preview": response.content[:100]  # 只存前100字符
+    })
+    _trace_manager.add_entry(trace_entry)
+    
+    return {
+        "messages": [response],
+        "trace_file": state.get("trace_file")
+    }
+    {% endif %}
+    
+    {% elif node.type == "rag" %}
+    # 🔧 v7.2 Fix: 获取用户的原始查询,而不是 Router 的输出
+    # 问题: 如果有 Router 节点,messages[-1] 是 "SEARCH" 而不是用户问题
+    # 解决: 只获取 human 类型的消息
+    messages = state["messages"]
+    user_query = ""
+    
+    # 从后往前找最后一条用户消息
+    for msg in reversed(messages):
+        if hasattr(msg, 'type') and msg.type == 'human':
+            user_query = msg.content
+            break
+        elif isinstance(msg, dict) and msg.get("role") == "user":
+            user_query = msg.get("content", "")
+            break
+    
+    # 如果没找到 human 消息,回退到第一条消息
+    if not user_query and messages:
+        user_query = messages[0].content if hasattr(messages[0], 'content') else str(messages[0])
+    
+    print(f"🔍 [RAG] Query: '{user_query[:50]}...'")
+    
+    docs = retriever.invoke(user_query)
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    
+    # 🆕 保存文档到外部文件 (避免 State 过大)
+    docs_file = _save_docs_to_file(docs, trace_entry["step"])
+    
+    rag_prompt = PROMPTS.get("rag_prompt", "Context: {context}\n\nQuestion: {question}").format(
+        context=context, 
+        question=user_query
+    )
+    response = llm.invoke(rag_prompt)
+    
+    # 🆕 记录 RAG 检索 (只存元数据,完整文档在外部文件)
+    trace_entry.update({
+        "action": "rag_retrieval",
+        "query": user_query,
+        "num_docs": len(docs),
+        "doc_ids": [f"doc_{i}" for i in range(len(docs))],
+        "docs_file": docs_file  # 指向外部文档文件
+    })
+    _trace_manager.add_entry(trace_entry)
+
+    
+    return {
+        "messages": [AIMessage(content=response.content)],
+        "context": context,
+        "retrieved_docs": [doc.page_content for doc in docs],
+        "trace_file": state.get("trace_file")
+    }
+    
+    {% elif node.type == "tool" %}
+    # Tool execution logic
+    tool_name = "{{ node.config.tool_name if node.config and node.config.tool_name else node.id }}"
+    tool_input = state["messages"][-1].content
+    
+    # TODO: Implement tool execution
+    tool_output = f"Tool {tool_name} executed"
+    
+    # 🆕 记录工具调用 (截断长输出)
+    trace_entry.update({
+        "action": "tool_call",
+        "tool_name": tool_name,
+        "tool_input": tool_input[:100],  # 只存前100字符
+        "tool_output": tool_output[:200]  # 只存前200字符
+    })
+    _trace_manager.add_entry(trace_entry)
+    
+    return {
+        "messages": [AIMessage(content=tool_output)],
+        "trace_file": state.get("trace_file")
+    }
+    
+    {% elif node.type == "conditional" %}
+    # Conditional logic node
+    trace_entry.update({
+        "action": "conditional_check",
+        "state_snapshot": {k: str(v)[:50] for k, v in state.items() if k != "messages"}
+    })
+    _trace_manager.add_entry(trace_entry)
+    
     return state
+    
+    {% else %}
+    # Custom node
+    trace_entry.update({
+        "action": "custom_node",
+        "note": "Custom node implementation"
+    })
+    _trace_manager.add_entry(trace_entry)
+    
+    return state
+    {% endif %}
+
 {% endfor %}
 
 
-# Conditional functions
+# ==================== Condition Functions ====================
 {% for cond_edge in conditional_edges %}
 def {{ cond_edge.condition }}(state: AgentState) -> str:
-    """Condition: {{ cond_edge.condition }}"""
-    # TODO: Implement condition logic
-    last_message = state["messages"][-1]
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "continue"
-    return "end"
+    """Condition: {{ cond_edge.condition }}
+    {% if cond_edge.condition_logic %}
+    
+    Logic:
+{{ cond_edge.condition_logic | indent(4, first=True) }}
+    {% endif %}
+    """
+    {% if cond_edge.condition_logic %}
+    # Auto-generated condition logic
+{{ cond_edge.condition_logic | indent(4, first=True) }}
+    {% else %}
+    # Fallback condition logic
+    if state.get("is_finished", False):
+        return "end"
+    
+    # Check iteration count if exists
+    if "iteration_count" in state and "max_iterations" in state:
+        if state["iteration_count"] >= state["max_iterations"]:
+            return "end"
+    
+    # Default: continue
+    return "continue"
+    {% endif %}
+
 {% endfor %}
 
 
-# Build graph
+# ==================== Graph Construction ====================
 def create_graph():
-    """Create and compile the agent graph."""
+    """Create and compile the agent graph.
+    
+    Pattern: {{ pattern.pattern_type.value }}
+    Entry Point: {{ entry_point }}
+    """
     workflow = StateGraph(AgentState)
     
     # Add nodes
-    {% for node in nodes %}
+{% for node in nodes %}
     workflow.add_node("{{ node.id }}", {{ node.id }}_node)
-    {% endfor %}
+{% endfor %}
     
     # Set entry point
     workflow.set_entry_point("{{ entry_point }}")
     
-    # Add edges
-    {% for edge in edges %}
+    # Add regular edges
+{% for edge in edges %}
+    {% if edge.target == "END" %}
+    workflow.add_edge("{{ edge.source }}", END)
+    {% else %}
     workflow.add_edge("{{ edge.source }}", "{{ edge.target }}")
-    {% endfor %}
+    {% endif %}
+{% endfor %}
     
     # Add conditional edges
-    {% for cond_edge in conditional_edges %}
+{% for cond_edge in conditional_edges %}
     workflow.add_conditional_edges(
         "{{ cond_edge.source }}",
         {{ cond_edge.condition }},
-        {{ cond_edge.branches }}
+        {
+{% for key, value in cond_edge.branches.items() %}
+            "{{ key }}": {% if value == "END" %}END{% else %}"{{ value }}"{% endif %},
+{% endfor %}
+        }
     )
-    {% endfor %}
+{% endfor %}
     
     # Compile with checkpointer
     memory = MemorySaver()
     return workflow.compile(checkpointer=memory)
 
 
-# Main execution
+# ==================== Helper Function for Testing ====================
+def run_agent(user_input: str, return_trace: bool = False):
+    """运行 Agent (用于测试)
+    
+    Args:
+        user_input: 用户输入
+        return_trace: 是否返回执行轨迹（用于 DeepEval 测试）
+    
+    Returns:
+        如果 return_trace=False: 返回 str (Agent 输出)
+        如果 return_trace=True: 返回 (str, List[Dict]) (输出, 轨迹)
+    """
+    graph = create_graph()
+    
+    # 🆕 Phase 4: 开始新的 trace
+    trace_file = _trace_manager.start_new_trace()
+    
+    # 准备初始状态
+    initial_state = {
+        "messages": [HumanMessage(content=user_input)],
+        "trace_file": trace_file,
+{% for field in state_schema.fields if field.name != "messages" %}
+        "{{ field.name }}": {% if field.default is not none %}{% if field.type.value == 'str' %}"{{ field.default }}"{% else %}{{ field.default }}{% endif %}{% else %}{{ '[]' if 'List' in field.type.value else '{}' if 'Dict' in field.type.value else '0' if field.type.value == 'int' else 'False' if field.type.value == 'bool' else '""' }}{% endif %},
+{% endfor %}
+    }
+    
+    # 执行 graph
+    config = {"configurable": {"thread_id": "test"}}
+    result = graph.invoke(initial_state, config)
+    
+    # 提取输出
+    output = result["messages"][-1].content if result.get("messages") else ""
+    
+    # 🆕 Phase 4: 保存 trace 到文件
+    _trace_manager.save()
+    
+    if return_trace:
+        # 从文件加载完整 trace (用于测试)
+        trace = _trace_manager.load(trace_file)
+        return output, trace
+    
+    return output
+
+
+# ==================== Main Execution ====================
 if __name__ == "__main__":
+    print("=" * 60)
+    print(f"🤖 {{ agent_name }}")
+    print("=" * 60)
+    print(f"Description: {{ description }}")
+    print(f"Pattern: {{ pattern.pattern_type.value }}")
+    {% if pattern.max_iterations > 1 %}
+    print(f"Max Iterations: {{ pattern.max_iterations }}")
+    {% endif %}
+    {% if has_rag %}
+    print("\n📚 RAG Mode: Enabled")
+    print(f"   Vector Store: {{ rag_config.vector_store }}")
+    print(f"   Embedding: {{ rag_config.embedding_provider }}/{{ rag_config.embedding_model_name }}")
+    print(f"   Retriever: {{ rag_config.retriever_type }}")
+    {% endif %}
+    {% if has_tools %}
+    print("\n🔧 Tools: {{ enabled_tools | join(', ') }}")
+    {% endif %}
+    print("=" * 60)
+    print("\nType 'quit' or 'q' to exit\n")
+    
     graph = create_graph()
     
     # Example usage
     config = {"configurable": {"thread_id": "1"}}
     
     while True:
-        user_input = input("You: ")
+        user_input = input("You: ").strip()
         if user_input.lower() in ["quit", "exit", "q"]:
+            print("\n👋 Goodbye!")
             break
         
-        state = {
-            "messages": [HumanMessage(content=user_input)],
+        if not user_input:
+            continue
+        
+        try:
+            # 🆕 Phase 4: 开始新的 trace
+            trace_file = _trace_manager.start_new_trace()
+            
             {% if has_rag %}
-            "context": "",
+            # Use RAG for question answering
+            result = ask_question(user_input)
+            print(f"\nAgent: {result['answer']}\n")
+            
+            # Display sources
+            if result['sources']:
+                print("📚 Sources:")
+                for i, source in enumerate(result['sources'][:3], 1):
+                    content_preview = source['content'][:100].replace('\n', ' ')
+                    print(f"   {i}. {content_preview}...")
+                print()
+            {% else %}
+            # Use graph for general conversation
+            initial_state = {
+                "messages": [HumanMessage(content=user_input)],
+                "trace_file": trace_file,  # 🆕 添加 trace_file
+{% for field in state_schema.fields if field.name != "messages" %}
+                "{{ field.name }}": {% if field.default is not none %}{% if field.type.value == 'str' %}"{{ field.default }}"{% else %}{{ field.default }}{% endif %}{% else %}{{ '[]' if 'List' in field.type.value else '{}' if 'Dict' in field.type.value else '0' if field.type.value == 'int' else 'False' if field.type.value == 'bool' else '""' }}{% endif %},
+{% endfor %}
+            }
+            
+            result = graph.invoke(initial_state, config)
+            
+            # Display response
+            if result.get("messages"):
+                print(f"\nAgent: {result['messages'][-1].content}\n")
+            
+            # Display pattern-specific info
+            {% if pattern.pattern_type.value == "reflection" %}
+            if "iteration_count" in result:
+                print(f"   (Iteration: {result['iteration_count']}/{result.get('max_iterations', 3)})")
+            {% elif pattern.pattern_type.value == "plan_execute" %}
+            if "current_step" in result and "plan" in result:
+                print(f"   (Step: {result['current_step']}/{len(result['plan'])})")
             {% endif %}
-            "next_action": ""
-        }
-        
-        result = graph.invoke(state, config)
-        
-        print(f"Agent: {result['messages'][-1].content}")
+            {% endif %}
+            
+            # 🆕 Phase 4: 保存 trace 到文件
+            _trace_manager.save()
+            print(f"   💾 Trace saved to: {trace_file}")
+            
+        except Exception as e:
+            print(f"\n❌ Error: {e}\n")
+            import traceback
+            traceback.print_exc()

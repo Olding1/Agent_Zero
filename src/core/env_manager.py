@@ -32,7 +32,7 @@ class EnvManager:
         Args:
             agent_dir: Path to agent project directory
         """
-        self.agent_dir = Path(agent_dir)
+        self.agent_dir = Path(agent_dir).resolve()  # Convert to absolute path
         self.venv_path = self.agent_dir / ".venv"
         self._python_exe: Optional[Path] = None
 

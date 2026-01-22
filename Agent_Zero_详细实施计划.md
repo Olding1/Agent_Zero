@@ -1,6 +1,6 @@
 # Agent Zero v6.0 详细实施计划
 
-> **项目愿景**: 打造一款桌面端、本地化、全自动的智能体构建工厂，通过元编程将自然语言转化为 LangGraph 拓扑。
+> **项目愿景**: 打造一款桌面端、本地化、全自动的智能体构建工厂，通过蓝图仿真将自然语言转化为 LangGraph 拓扑。
 
 ---
 
@@ -15,11 +15,13 @@ graph TB
     end
     
     subgraph Core["⚙️ 核心引擎层"]
-        PM[PM 需求分析师]
-        GD[Graph Designer 图设计师]
+        PM_C[PM Clarifier 澄清者]
+        PM_P[PM Planner 规划者]
+        GD[Graph Designer 三步设计]
         TS[Tool Selector 工具选型]
         PF[Profiler 数据体检]
-        RB[RAG Builder RAG装配工]
+        RB[RAG Builder RAG装配]
+        SIM[Simulator 沙盘推演]
         TG[Test Generator 测试生成]
         CP[Compiler 编译器]
         EM[Env Manager 环境管家]
@@ -31,24 +33,30 @@ graph TB
         Config[(配置存储)]
         Agents[(Agent 项目)]
         VectorDB[(ChromaDB)]
+        Patterns[(模式模板库)]
     end
     
     subgraph External["🌐 外部服务"]
-        BuilderAPI[Builder API\nGPT-4o / Claude]
-        RuntimeAPI[Runtime API\nOllama / DeepSeek]
+        BuilderAPI[Builder API<br/>GPT-4o / DeepSeek]
+        RuntimeAPI[Runtime API<br/>Ollama / DeepSeek]
         MCP[LangChain MCP]
     end
     
-    UI --> PM
-    PM --> GD & TS & PF & TG
-    GD & TS --> CP
-    PF --> RB --> CP
+    UI --> PM_C
+    PM_C <-->|澄清回路| UI
+    PM_C --> PM_P
+    PM_P --> GD & TS & PF & TG
+    GD & TS --> SIM
+    PF --> RB --> SIM
+    SIM --> UI
+    UI -->|验收通过| CP
     TG --> JD
     CP --> EM --> RN --> JD
-    JD -->|FAIL| CP
+    JD -->|FAIL: Runtime| CP
+    JD -->|FAIL: Logic| GD
     JD -->|PASS| Agents
     
-    PM & GD & RB & TG & JD -.-> BuilderAPI
+    PM_C & PM_P & GD & SIM & JD -.-> BuilderAPI
     RN -.-> RuntimeAPI
     CP -.-> MCP
 ```
@@ -76,90 +84,91 @@ Agent_Zero/
 ├── 📂 src/                          # 源代码目录
 │   ├── 📂 core/                     # 核心引擎
 │   │   ├── __init__.py
-│   │   ├── pm.py                    # PM 需求分析师
-│   │   ├── graph_designer.py        # 图设计师
+│   │   ├── pm.py                    # PM 需求分析师 (双脑模式)
+│   │   ├── graph_designer.py        # 图设计师 (三步设计法)
 │   │   ├── tool_selector.py         # 工具选型
 │   │   ├── profiler.py              # 数据体检
 │   │   ├── rag_builder.py           # RAG 装配工
+│   │   ├── simulator.py             # [新增] 沙盘推演
 │   │   ├── test_generator.py        # 测试用例生成
 │   │   ├── compiler.py              # 编译器
 │   │   ├── env_manager.py           # 环境管家
 │   │   ├── runner.py                # 本地执行器
-│   │   └── judge.py                 # 质检员
+│   │   ├── judge.py                 # 质检员 (双重反馈)
+│   │   └── orchestrator.py          # [新增] 流程编排器
 │   │
 │   ├── 📂 schemas/                  # Pydantic 数据模型
 │   │   ├── __init__.py
-│   │   ├── project_meta.py          # 项目元信息 Schema
-│   │   ├── graph_structure.py       # 图结构 Schema
-│   │   ├── rag_config.py            # RAG 配置 Schema
-│   │   ├── tools_config.py          # 工具配置 Schema
-│   │   ├── test_cases.py            # 测试用例 Schema
-│   │   └── execution_result.py      # 执行结果 Schema
+│   │   ├── project_meta.py          # 项目元信息 (含 execution_plan)
+│   │   ├── graph_structure.py       # 图结构 (含 pattern, state_schema)
+│   │   ├── state_schema.py          # [新增] 状态定义模型
+│   │   ├── pattern.py               # [新增] 设计模式模型
+│   │   ├── simulation.py            # [新增] 仿真结果模型
+│   │   ├── rag_config.py            # RAG 配置
+│   │   ├── tools_config.py          # 工具配置
+│   │   ├── test_cases.py            # 测试用例
+│   │   └── execution_result.py      # 执行结果
 │   │
 │   ├── 📂 templates/                # Jinja2 代码模板
-│   │   ├── agent_template.py.j2     # Agent 主程序模板
+│   │   ├── agent_template.py.j2     # Agent 主程序模板 (支持 TypedDict)
 │   │   ├── rag_template.py.j2       # RAG 模块模板
-│   │   └── prompts_template.yaml.j2 # Prompt 配置模板
+│   │   ├── prompts_template.yaml.j2 # Prompt 配置模板
+│   │   └── 📂 patterns/             # [新增] 模式模板库
+│   │       ├── sequential.j2
+│   │       ├── reflection.j2
+│   │       ├── supervisor.j2
+│   │       └── plan_execute.j2
+│   │
+│   ├── 📂 prompts/                  # [新增] Prompt 模板
+│   │   ├── pm_clarifier.txt
+│   │   ├── pm_planner.txt
+│   │   ├── graph_designer.txt
+│   │   └── simulator.txt
 │   │
 │   ├── 📂 tools/                    # 内置工具库
 │   │   ├── __init__.py
 │   │   ├── registry.py              # 工具注册表
-│   │   ├── search.py                # 搜索工具
-│   │   ├── calculator.py            # 计算工具
-│   │   └── file_ops.py              # 文件操作工具
+│   │   └── preset_tools.py          # 预置工具
 │   │
 │   ├── 📂 llm/                      # LLM 客户端封装
 │   │   ├── __init__.py
-│   │   ├── builder_client.py        # Builder API 客户端
-│   │   ├── runtime_client.py        # Runtime API 客户端
-│   │   └── mcp_client.py            # MCP 客户端
+│   │   ├── builder_client.py
+│   │   ├── runtime_client.py
+│   │   └── mcp_client.py
 │   │
-│   ├── 📂 utils/                    # 工具函数
-│   │   ├── __init__.py
-│   │   ├── file_utils.py            # 文件操作
-│   │   ├── git_utils.py             # Git 操作
-│   │   └── validation.py            # 校验工具
-│   │
-│   └── 📂 ui/                       # UI 界面
+│   └── 📂 utils/                    # 工具函数
 │       ├── __init__.py
-│       ├── app.py                   # Streamlit 主程序
-│       ├── pages/                   # 页面组件
-│       │   ├── builder.py           # 构建页面
-│       │   ├── settings.py          # 设置页面
-│       │   └── monitor.py           # 监控页面
-│       └── components/              # UI 组件
-│
-├── 📂 agents/                       # 生成的 Agent 项目目录
-│   └── [agent_id]/                  # 单个 Agent 项目
+│       ├── file_utils.py
+│       ├── git_utils.py
+│       └── validation.py
 │
 ├── 📂 config/                       # 系统配置
-│   ├── builder_api.yaml             # Builder API 配置
-│   ├── runtime_api.yaml             # Runtime API 配置
-│   └── tool_registry.yaml           # 工具注册表
+│   ├── builder_api.yaml
+│   ├── runtime_api.yaml
+│   ├── tool_registry.yaml
+│   └── 📂 patterns/                 # [新增] 模式配置
+│       ├── sequential.yaml
+│       ├── reflection.yaml
+│       ├── supervisor.yaml
+│       └── plan_execute.yaml
 │
+├── 📂 agents/                       # 生成的 Agent 项目
 ├── 📂 tests/                        # 测试代码
-│   ├── 📂 unit/                     # 单元测试
-│   ├── 📂 integration/              # 集成测试
-│   └── 📂 e2e/                      # 端到端测试
-│
 ├── 📂 docs/                         # 文档
-│   └── api/                         # API 文档
-│
-├── requirements.txt                 # 项目依赖
-├── requirements-dev.txt             # 开发依赖
-├── pyproject.toml                   # 项目配置
-└── README.md                        # 项目说明
+├── requirements.txt
+├── pyproject.toml
+└── README.md
 ```
 
 ---
 
 ## 📐 核心数据结构定义 (Pydantic Schemas)
 
-### 1. project_meta.py - 项目元信息
+### 1. project_meta.py - 项目元信息 [升级]
 
 ```python
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from enum import Enum
 
 class TaskType(str, Enum):
@@ -169,20 +178,83 @@ class TaskType(str, Enum):
     RAG = "rag"
     CUSTOM = "custom"
 
+class ExecutionStep(BaseModel):
+    """执行计划步骤"""
+    step: int = Field(..., description="步骤序号")
+    role: str = Field(..., description="角色名称 (Architect/Coder/Tester等)")
+    goal: str = Field(..., description="步骤目标")
+    expected_output: Optional[str] = Field(None, description="预期输出")
+
 class ProjectMeta(BaseModel):
     """PM 节点输出的项目元信息"""
-    agent_name: str = Field(..., description="Agent 名称", min_length=1, max_length=50)
-    description: str = Field(..., description="Agent 功能描述")
-    has_rag: bool = Field(default=False, description="是否需要 RAG")
-    task_type: TaskType = Field(default=TaskType.CHAT, description="任务类型")
-    language: str = Field(default="zh-CN", description="主要语言")
-    user_intent_summary: str = Field(..., description="用户意图摘要")
-    file_paths: Optional[List[str]] = Field(default=None, description="用户上传的文件路径")
-    clarification_needed: bool = Field(default=False, description="是否需要进一步澄清")
-    clarification_questions: Optional[List[str]] = Field(default=None, description="澄清问题列表")
+    # 基础字段
+    agent_name: str = Field(..., min_length=1, max_length=50)
+    description: str
+    has_rag: bool = Field(default=False)
+    task_type: TaskType = Field(default=TaskType.CHAT)
+    language: str = Field(default="zh-CN")
+    user_intent_summary: str
+    file_paths: Optional[List[str]] = None
+    
+    # 新增字段 - 双脑模式
+    status: Literal["clarifying", "ready"] = Field(default="ready")
+    clarification_questions: Optional[List[str]] = None
+    complexity_score: int = Field(default=1, ge=1, le=10)
+    execution_plan: Optional[List[ExecutionStep]] = None
 ```
 
-### 2. graph_structure.py - 图结构定义
+### 2. pattern.py - 设计模式 [新增]
+
+```python
+from pydantic import BaseModel, Field
+from enum import Enum
+from typing import Optional
+
+class PatternType(str, Enum):
+    SEQUENTIAL = "sequential"      # A -> B -> C
+    REFLECTION = "reflection"      # Generate <-> Critique
+    SUPERVISOR = "supervisor"      # Manager -> [Workers] -> Manager
+    PLAN_EXECUTE = "plan_execute"  # Planner -> Executor -> Replanner
+    CUSTOM = "custom"
+
+class PatternConfig(BaseModel):
+    """设计模式配置"""
+    pattern_type: PatternType = Field(..., description="模式类型")
+    max_iterations: int = Field(default=3, ge=1, le=10, description="最大循环次数")
+    termination_condition: Optional[str] = Field(None, description="终止条件表达式")
+    description: str = Field(default="", description="模式说明")
+```
+
+### 3. state_schema.py - 状态定义 [新增]
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional, Any
+from enum import Enum
+
+class StateFieldType(str, Enum):
+    STRING = "str"
+    INT = "int"
+    BOOL = "bool"
+    LIST_MESSAGE = "List[BaseMessage]"
+    LIST_STR = "List[str]"
+    DICT = "Dict[str, Any]"
+    OPTIONAL_STR = "Optional[str]"
+
+class StateField(BaseModel):
+    """状态字段定义"""
+    name: str = Field(..., description="字段名")
+    type: StateFieldType = Field(..., description="字段类型")
+    description: Optional[str] = Field(None, description="字段说明")
+    default: Optional[Any] = Field(None, description="默认值")
+    reducer: Optional[str] = Field(None, description="归约函数 (如 add_messages)")
+
+class StateSchema(BaseModel):
+    """完整状态定义"""
+    fields: List[StateField] = Field(..., description="状态字段列表")
+```
+
+### 4. graph_structure.py - 图结构 [升级]
 
 ```python
 from pydantic import BaseModel, Field, model_validator
@@ -191,548 +263,533 @@ from typing import List, Dict, Optional, Literal
 class NodeDef(BaseModel):
     """图节点定义"""
     id: str = Field(..., description="节点唯一标识")
-    type: Literal["llm", "tool", "rag", "conditional", "custom"] = Field(..., description="节点类型")
-    config: Optional[Dict] = Field(default=None, description="节点配置")
+    type: Literal["llm", "tool", "rag", "conditional", "custom"]
+    role_description: Optional[str] = Field(None, description="角色描述，用于 Prompt")
+    config: Optional[Dict] = None
 
 class EdgeDef(BaseModel):
     """普通边定义"""
-    source: str = Field(..., description="源节点 ID")
-    target: str = Field(..., description="目标节点 ID")
+    source: str
+    target: str
 
 class ConditionalEdgeDef(BaseModel):
-    """条件边定义"""
-    source: str = Field(..., description="源节点 ID")
+    """条件边定义 [升级]"""
+    source: str
     condition: str = Field(..., description="条件函数名")
-    branches: Dict[str, str] = Field(..., description="分支映射 {条件值: 目标节点}")
+    condition_logic: Optional[str] = Field(None, description="条件逻辑表达式")
+    branches: Dict[str, str]
 
 class GraphStructure(BaseModel):
-    """完整的图结构定义"""
-    nodes: List[NodeDef] = Field(..., min_length=1, description="节点列表")
-    edges: List[EdgeDef] = Field(default_factory=list, description="普通边列表")
-    conditional_edges: List[ConditionalEdgeDef] = Field(default_factory=list, description="条件边列表")
-    entry_point: str = Field(default="agent", description="入口节点 ID")
+    """完整的图结构定义 [升级]"""
+    # 新增字段
+    pattern: PatternConfig = Field(..., description="设计模式")
+    state_schema: StateSchema = Field(..., description="状态定义")
     
-    @model_validator(mode='after')
-    def validate_graph(self):
-        """验证图的完整性"""
-        node_ids = {node.id for node in self.nodes}
-        # 验证边的节点引用
-        for edge in self.edges:
-            if edge.source not in node_ids:
-                raise ValueError(f"Edge source '{edge.source}' not found in nodes")
-            if edge.target not in node_ids and edge.target != "END":
-                raise ValueError(f"Edge target '{edge.target}' not found in nodes")
-        return self
+    # 原有字段
+    nodes: List[NodeDef] = Field(..., min_length=1)
+    edges: List[EdgeDef] = Field(default_factory=list)
+    conditional_edges: List[ConditionalEdgeDef] = Field(default_factory=list)
+    entry_point: str = Field(default="agent")
 ```
 
-### 3. rag_config.py - RAG 配置
-
-```python
-from pydantic import BaseModel, Field
-from typing import Literal, Optional
-
-class RAGConfig(BaseModel):
-    """RAG 配置"""
-    splitter: Literal["recursive", "character", "token", "semantic"] = Field(
-        default="recursive", description="分割器类型"
-    )
-    chunk_size: int = Field(default=1000, ge=100, le=4000, description="分块大小")
-    chunk_overlap: int = Field(default=200, ge=0, le=500, description="分块重叠")
-    k_retrieval: int = Field(default=5, ge=1, le=20, description="检索数量")
-    embedding_model: str = Field(default="openai", description="嵌入模型标识")
-    retriever_type: Literal["basic", "parent_document", "multi_query"] = Field(
-        default="basic", description="检索器类型"
-    )
-    reranker_enabled: bool = Field(default=False, description="是否启用重排序")
-```
-
-### 4. tools_config.py - 工具配置
-
-```python
-from pydantic import BaseModel, Field
-from typing import List
-
-class ToolsConfig(BaseModel):
-    """工具配置"""
-    enabled_tools: List[str] = Field(
-        default_factory=list, 
-        description="启用的工具列表"
-    )
-```
-
-### 5. test_cases.py - 测试用例
+### 5. simulation.py - 仿真结果 [新增]
 
 ```python
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
-
-class TestType(str, Enum):
-    FACT_BASED = "fact_based"
-    LOGIC_BASED = "logic_based"
-    BOUNDARY = "boundary"
-
-class TestCase(BaseModel):
-    """单个测试用例"""
-    id: str = Field(..., description="测试用例 ID")
-    type: TestType = Field(..., description="测试类型")
-    input: str = Field(..., description="输入内容")
-    expected_keywords: Optional[List[str]] = Field(default=None, description="期望包含的关键词")
-    expected_tone: Optional[str] = Field(default=None, description="期望的语气")
-    expected_not_contain: Optional[List[str]] = Field(default=None, description="不应包含的内容")
-    timeout_seconds: int = Field(default=30, description="超时时间")
-
-class TestSuite(BaseModel):
-    """测试套件"""
-    cases: List[TestCase] = Field(..., description="测试用例列表")
-```
-
-### 6. execution_result.py - 执行结果
-
-```python
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from enum import Enum
 from datetime import datetime
 
-class ExecutionStatus(str, Enum):
-    PASS = "pass"
-    FAIL = "fail"
-    ERROR = "error"
-    TIMEOUT = "timeout"
+class SimulationStepType(str, Enum):
+    ENTER_NODE = "enter_node"
+    EXIT_NODE = "exit_node"
+    STATE_UPDATE = "state_update"
+    CONDITION_CHECK = "condition_check"
+    EDGE_TRAVERSE = "edge_traverse"
 
-class TestResult(BaseModel):
-    """单个测试结果"""
-    test_id: str
-    status: ExecutionStatus
-    actual_output: Optional[str] = None
-    error_message: Optional[str] = None
-    duration_ms: int
-    token_usage: Optional[int] = None
+class SimulationStep(BaseModel):
+    """仿真步骤"""
+    step_number: int
+    step_type: SimulationStepType
+    node_id: Optional[str] = None
+    description: str
+    state_snapshot: Optional[Dict] = None
 
-class ExecutionResult(BaseModel):
-    """完整执行结果"""
-    overall_status: ExecutionStatus
-    test_results: List[TestResult]
-    stderr: Optional[str] = None
-    feedback: Optional[str] = None
-    total_token_usage: int = 0
-    executed_at: datetime = Field(default_factory=datetime.now)
+class SimulationIssue(BaseModel):
+    """仿真发现的问题"""
+    issue_type: Literal["infinite_loop", "unreachable_node", "missing_edge", "invalid_condition"]
+    severity: Literal["error", "warning"]
+    description: str
+    affected_nodes: List[str]
+
+class SimulationResult(BaseModel):
+    """仿真结果"""
+    success: bool
+    total_steps: int
+    steps: List[SimulationStep]
+    issues: List[SimulationIssue] = Field(default_factory=list)
+    final_state: Optional[Dict] = None
+    execution_trace: str = Field(..., description="可读的执行轨迹文本")
+    mermaid_trace: Optional[str] = Field(None, description="Mermaid 格式的轨迹图")
+    simulated_at: datetime = Field(default_factory=datetime.now)
 ```
 
 ---
 
 ## 🔧 各模块详细开发任务
 
-### 阶段一：内核 MVP (Week 1-2)
+### 阶段一：内核 MVP (Week 1-2) ✅ 已完成
 
-#### Week 1: 核心编译管道
+- [x] JSON Schema 体系
+- [x] Compiler 编译器
+- [x] Env Manager 环境管家
+- [x] API 双轨配置 (Builder/Runtime)
+- [x] Hello World Agent 联调
 
-##### Task 1.1: 定义 JSON Schema 体系
-- **文件**: `src/schemas/*.py`
-- **工作内容**:
-  1. 实现上述所有 Pydantic 模型
-  2. 添加 JSON Schema 导出功能
-  3. 编写 Schema 单元测试
+### 阶段二：数据流与工具 (Week 3-4) ✅ 已完成
 
-##### Task 1.2: 开发 Compiler 编译器
-- **文件**: `src/core/compiler.py`
-- **工作内容**:
-  ```python
-  class Compiler:
-      def __init__(self, template_dir: Path):
-          self.env = Environment(loader=FileSystemLoader(template_dir))
-      
-      def compile(
-          self,
-          graph: GraphStructure,
-          rag_config: Optional[RAGConfig],
-          tools_config: ToolsConfig,
-          output_dir: Path
-      ) -> CompileResult:
-          """
-          将 JSON 配置编译为可执行代码
-          
-          输出:
-          - agent.py: 主程序
-          - prompts.yaml: 提示词配置
-          - requirements.txt: 依赖列表
-          - .env.template: 环境变量模板
-          """
-          pass
-  ```
-- **关键点**:
-  - Jinja2 模板设计（条件渲染、循环生成）
-  - 依赖版本锁定策略
-  - 代码格式化（使用 `black`）
-
-##### Task 1.3: 开发 Env Manager 环境管家
-- **文件**: `src/core/env_manager.py`
-- **工作内容**:
-  ```python
-  class EnvManager:
-      def __init__(self, agent_dir: Path):
-          self.agent_dir = agent_dir
-          self.venv_path = agent_dir / ".venv"
-      
-      async def setup_environment(self) -> bool:
-          """创建虚拟环境并安装依赖"""
-          pass
-      
-      def get_python_executable(self) -> Path:
-          """获取 venv 中的 Python 路径"""
-          pass
-      
-      async def install_requirements(self) -> bool:
-          """安装 requirements.txt"""
-          pass
-  ```
-- **关键点**:
-  - 跨平台路径处理（`pathlib`）
-  - pip 镜像源配置
-  - 安装超时处理
-
-#### Week 2: API 配置与联调
-
-##### Task 1.4: 实现 API 双轨配置
-- **文件**: `src/llm/builder_client.py`, `src/llm/runtime_client.py`
-- **工作内容**:
-  ```python
-  class BuilderClient:
-      """Builder API 客户端 - 用于构建时的 LLM 调用"""
-      
-      def __init__(self, config: BuilderAPIConfig):
-          self.client = self._init_client(config)
-      
-      async def call(self, prompt: str, schema: Optional[Type[BaseModel]] = None) -> str:
-          """调用 Builder API，可选结构化输出"""
-          pass
-      
-      async def health_check(self) -> bool:
-          """连通性检测"""
-          pass
-  ```
-- **配置文件**: `config/builder_api.yaml`
-  ```yaml
-  provider: openai  # openai / anthropic / azure
-  model: gpt-4o
-  api_key: ${BUILDER_API_KEY}  # 从环境变量读取
-  base_url: null  # 可选自定义端点
-  timeout: 60
-  max_retries: 3
-  ```
-
-##### Task 1.5: Hello World Agent 联调
-- **验收标准**:
-  1. 手动编写一个 `graph_structure.json`
-  2. Compiler 生成 `agent.py`
-  3. Env Manager 创建 venv 并安装依赖
-  4. Agent 能在 venv 中正常运行
+- [x] Profiler 数据体检
+- [x] RAG Builder 策略设计
+- [x] Tool Registry 工具注册表
+- [x] Tool Selector 工具选型
+- [x] PM 基础实现
+- [x] Graph Designer 基础实现
+- [x] 预置工具 (5个)
+- [x] 单元测试 + E2E 测试
 
 ---
 
-### 阶段二：数据流与工具 (Week 3-4)
+### 阶段三：蓝图仿真系统 (Week 5-6) 🔄 当前阶段
 
-#### Week 3: RAG 管道
+#### Task 3.1: Schema 层升级
 
-##### Task 2.1: 开发 Profiler 数据体检
-- **文件**: `src/core/profiler.py`
-- **工作内容**:
-  ```python
-  class DataProfiler:
-      """分析用户上传的文件特征"""
-      
-      def analyze(self, file_paths: List[Path]) -> DataProfile:
-          """
-          分析文件并返回特征报告
-          
-          输出:
-          - file_hash: MD5 哈希
-          - file_type: 文件类型
-          - text_density: 文本密度
-          - has_tables: 是否包含表格
-          - estimated_tokens: 预估 token 数
-          """
-          pass
-  ```
-- **依赖**: `unstructured`, `python-magic`, `pymupdf`
+**新增文件**: 
+- `src/schemas/pattern.py`
+- `src/schemas/state_schema.py`
+- `src/schemas/simulation.py`
 
-##### Task 2.2: 开发 RAG Builder
-- **文件**: `src/core/rag_builder.py`
-- **工作内容**:
-  ```python
-  class RAGBuilder:
-      """根据数据特征推荐 RAG 策略"""
-      
-      def __init__(self, llm_client: BuilderClient):
-          self.llm = llm_client
-      
-      async def design_rag_strategy(self, profile: DataProfile) -> RAGConfig:
-          """
-          基于数据特征设计 RAG 策略
-          
-          决策逻辑:
-          - 表格多 -> ParentDocumentRetriever
-          - 文件极大 -> chunk_size=2000
-          - 普通文档 -> RecursiveCharacterTextSplitter
-          """
-          pass
-  ```
+**修改文件**:
+- `src/schemas/project_meta.py` - 添加 status, execution_plan, complexity_score
+- `src/schemas/graph_structure.py` - 添加 pattern, state_schema, condition_logic
 
-##### Task 2.3: Prompt 分离机制
-- **模板文件**: `src/templates/prompts_template.yaml.j2`
-  ```yaml
-  system_prompt: |
-    你是一个专业的 {{ agent_type }} 助手。
-    {{ custom_instructions }}
-  
-  rag_prompt: |
-    基于以下上下文回答问题:
-    {context}
+**工作内容**:
+1. 实现 PatternConfig 模型
+2. 实现 StateSchema 模型
+3. 实现 SimulationResult 模型
+4. 更新 ProjectMeta 添加双脑模式字段
+5. 更新 GraphStructure 添加模式和状态字段
+6. 编写 Schema 单元测试
+
+---
+
+#### Task 3.2: PM 双脑模式升级
+
+**修改文件**: `src/core/pm.py`
+
+```python
+class PMAnalyzer:
+    def __init__(self, llm_client: BuilderClient):
+        self.llm = llm_client
     
-    问题: {question}
-  
-  tool_prompt: |
-    你可以使用以下工具: {{ tools | join(', ') }}
-  ```
+    async def clarify_requirements(
+        self, 
+        user_query: str,
+        chat_history: List[Dict]
+    ) -> Tuple[bool, Optional[List[str]]]:
+        """
+        澄清者角色：检查需求完整度
+        
+        Returns:
+            (is_ready, clarification_questions)
+        """
+        # 使用 LLM 评估需求完整度
+        # 如果 < 80%，生成澄清问题
+        pass
+    
+    async def create_execution_plan(
+        self,
+        project_meta: ProjectMeta
+    ) -> List[ExecutionStep]:
+        """
+        规划者角色：生成分层任务清单
+        
+        针对复杂任务生成:
+        - 角色分工 (Architect, Coder, Tester)
+        - 步骤目标
+        - 预期输出
+        """
+        pass
+    
+    async def estimate_complexity(
+        self,
+        user_query: str,
+        has_files: bool
+    ) -> int:
+        """评估任务复杂度 (1-10)"""
+        pass
+    
+    async def analyze_with_clarification_loop(
+        self,
+        user_query: str,
+        chat_history: List[Dict],
+        file_paths: Optional[List[str]] = None
+    ) -> ProjectMeta:
+        """
+        完整的双脑模式分析流程:
+        1. 澄清者检查需求
+        2. 如需澄清，返回 status="clarifying"
+        3. 否则，规划者生成执行计划
+        4. 返回 status="ready" 的 ProjectMeta
+        """
+        pass
+```
 
-#### Week 4: 工具系统
-
-##### Task 2.4: 工具注册表
-- **文件**: `src/tools/registry.py`
-- **工作内容**:
-  ```python
-  class ToolRegistry:
-      """工具注册与发现"""
-      
-      def __init__(self):
-          self._tools: Dict[str, ToolDef] = {}
-      
-      def register(self, name: str, tool: BaseTool, description: str):
-          """注册工具"""
-          pass
-      
-      def get_tool(self, name: str) -> BaseTool:
-          """获取工具实例"""
-          pass
-      
-      def search(self, query: str, top_k: int = 5) -> List[ToolDef]:
-          """语义搜索匹配工具"""
-          pass
-  ```
-- **预置工具**:
-  - `tavily_search`: 网络搜索
-  - `llm_math`: 数学计算
-  - `file_read`: 文件读取
-  - `file_write`: 文件写入
-  - `python_repl`: Python 执行
-
-##### Task 2.5: Tool Selector 实现
-- **文件**: `src/core/tool_selector.py`
-- **工作内容**:
-  ```python
-  class ToolSelector:
-      """根据需求选择合适的工具"""
-      
-      async def select_tools(
-          self, 
-          project_meta: ProjectMeta,
-          registry: ToolRegistry
-      ) -> ToolsConfig:
-          """基于语义匹配选择工具"""
-          pass
-  ```
-
----
-
-### 阶段三：闭环与进化 (Week 5-7)
-
-#### Week 5: 测试与执行
-
-##### Task 3.1: Test Generator 测试生成器
-- **文件**: `src/core/test_generator.py`
-- **工作内容**:
-  ```python
-  class TestGenerator:
-      """自动生成测试用例"""
-      
-      async def generate(
-          self,
-          project_meta: ProjectMeta,
-          data_profile: Optional[DataProfile]
-      ) -> TestSuite:
-          """
-          生成测试套件
-          
-          策略:
-          - Fact-based: 从 RAG 文档提取事实生成 Q&A
-          - Logic-based: 针对功能生成边界测试
-          - Boundary: 异常输入测试
-          """
-          pass
-  ```
-
-##### Task 3.2: Runner 本地执行器
-- **文件**: `src/core/runner.py`
-- **工作内容**:
-  ```python
-  class LocalRunner:
-      """在沙盒环境中执行 Agent"""
-      
-      async def run_test(
-          self,
-          agent_dir: Path,
-          test_case: TestCase,
-          runtime_config: RuntimeAPIConfig
-      ) -> TestResult:
-          """
-          执行单个测试
-          
-          流程:
-          1. 注入 Runtime API 环境变量
-          2. 子进程启动 agent.py
-          3. 捕获 stdout/stderr
-          4. 处理超时
-          """
-          pass
-  ```
-
-##### Task 3.3: Judge 质检员
-- **文件**: `src/core/judge.py`
-- **工作内容**:
-  ```python
-  class Judge:
-      """评估执行结果"""
-      
-      async def evaluate(
-          self,
-          test_suite: TestSuite,
-          results: List[TestResult]
-      ) -> ExecutionResult:
-          """
-          三级评估:
-          - Level 1: Crash Check (stderr 检查)
-          - Level 2: Accuracy Check (关键词匹配)
-          - Level 3: Cost Check (Token 消耗)
-          """
-          pass
-      
-      def generate_feedback(self, result: ExecutionResult) -> str:
-          """生成修复建议"""
-          pass
-  ```
-
-#### Week 6: MCP 集成
-
-##### Task 3.4: MCP Client 实现
-- **文件**: `src/llm/mcp_client.py`
-- **工作内容**:
-  ```python
-  class MCPClient:
-      """LangChain MCP 协议客户端"""
-      
-      async def query_migration_guide(
-          self,
-          deprecated_api: str
-      ) -> Optional[MigrationGuide]:
-          """查询 API 迁移指南"""
-          pass
-      
-      async def get_latest_version(
-          self,
-          package: str
-      ) -> str:
-          """获取包的最新版本"""
-          pass
-  ```
-- **兜底机制**: 本地缓存核心迁移规则
-
-##### Task 3.5: 自动重构工作流
-- **文件**: `src/core/refactor.py`
-- **工作内容**:
-  ```python
-  class ProactiveRefactor:
-      """主动重构模块"""
-      
-      async def upgrade_agent(self, agent_dir: Path) -> RefactorResult:
-          """
-          升级工作流:
-          1. Git tag pre_upgrade
-          2. 查询 MCP 获取迁移建议
-          3. LLM 重写代码
-          4. 更新依赖
-          5. 运行测试
-          6. 失败则回滚
-          """
-          pass
-  ```
-
-#### Week 7: Git 集成
-
-##### Task 3.6: Git 版本管理
-- **文件**: `src/utils/git_utils.py`
-- **工作内容**:
-  ```python
-  class GitManager:
-      """Git 版本控制管理"""
-      
-      def init_repo(self, agent_dir: Path) -> None:
-          """初始化 Git 仓库"""
-          pass
-      
-      def commit(self, agent_dir: Path, message: str) -> str:
-          """提交变更，返回 commit hash"""
-          pass
-      
-      def tag(self, agent_dir: Path, tag_name: str) -> None:
-          """创建标签"""
-          pass
-      
-      def rollback(self, agent_dir: Path, target: str) -> None:
-          """回滚到指定版本"""
-          pass
-  ```
+**新增 Prompt**: `src/prompts/pm_clarifier.txt`, `src/prompts/pm_planner.txt`
 
 ---
 
-### 阶段四：产品化 (Week 8-9)
+#### Task 3.3: Graph Designer 三步设计法
 
-#### Week 8: UI 开发
+**修改文件**: `src/core/graph_designer.py`
 
-##### Task 4.1: Streamlit 主界面
-- **文件**: `src/ui/app.py`
-- **页面结构**:
-  1. **Builder 页面**: 输入需求 -> 生成 Agent
-  2. **Settings 页面**: API 配置（Builder/Runtime）
-  3. **Monitor 页面**: 运行监控、日志查看
-  4. **Projects 页面**: Agent 项目管理
+```python
+class GraphDesigner:
+    def __init__(self, llm_client: BuilderClient):
+        self.llm = llm_client
+        self.pattern_templates = self._load_pattern_templates()
+    
+    def _load_pattern_templates(self) -> Dict[PatternType, Dict]:
+        """加载模式模板库"""
+        pass
+    
+    async def select_pattern(
+        self,
+        project_meta: ProjectMeta
+    ) -> PatternConfig:
+        """
+        Step 1: 选择设计模式
+        
+        基于:
+        - execution_plan 的步骤数
+        - 是否需要反思/迭代
+        - 是否需要多角色协作
+        """
+        pass
+    
+    async def define_state_schema(
+        self,
+        project_meta: ProjectMeta,
+        pattern: PatternConfig
+    ) -> StateSchema:
+        """
+        Step 2: 定义状态结构
+        
+        必须包含:
+        - messages (对话历史)
+        - 循环控制变量 (retry_count)
+        - 终止标志 (is_finished)
+        """
+        pass
+    
+    async def design_nodes_and_edges(
+        self,
+        project_meta: ProjectMeta,
+        pattern: PatternConfig,
+        state_schema: StateSchema,
+        tools_config: Optional[ToolsConfig] = None,
+        rag_config: Optional[RAGConfig] = None
+    ) -> GraphStructure:
+        """
+        Step 3: 设计节点和边
+        
+        包括:
+        - 基于 pattern 模板生成基础结构
+        - 添加工具节点 (如有)
+        - 添加 RAG 节点 (如有)
+        - 生成条件边的 condition_logic
+        """
+        pass
+    
+    async def design_graph(
+        self,
+        project_meta: ProjectMeta,
+        tools_config: Optional[ToolsConfig] = None,
+        rag_config: Optional[RAGConfig] = None
+    ) -> GraphStructure:
+        """完整的三步设计流程"""
+        pattern = await self.select_pattern(project_meta)
+        state_schema = await self.define_state_schema(project_meta, pattern)
+        graph = await self.design_nodes_and_edges(
+            project_meta, pattern, state_schema, tools_config, rag_config
+        )
+        return graph
+```
 
-##### Task 4.2: 流式可视化
-- **功能**:
-  - 实时显示生成进度
-  - Graph 拓扑可视化（使用 `pyvis`）
-  - Token 消耗实时统计
+**新增配置**: `config/patterns/*.yaml`
 
-##### Task 4.3: HITL 人工干预
-- **功能**:
-  - 暂停执行
-  - 查看/修改中间状态
-  - 手动跳过节点
-  - 继续执行
+```yaml
+# config/patterns/reflection.yaml
+name: reflection
+description: "生成-批评循环模式，适用于需要迭代改进的任务"
+default_nodes:
+  - id: generator
+    type: llm
+    role_description: "生成初始输出"
+  - id: critic
+    type: llm
+    role_description: "评审并提供改进建议"
+default_edges:
+  - source: generator
+    target: critic
+default_conditional_edges:
+  - source: critic
+    condition: should_continue
+    branches:
+      continue: generator
+      end: END
+required_state_fields:
+  - name: draft
+    type: str
+  - name: feedback
+    type: str
+  - name: iteration_count
+    type: int
+```
 
-#### Week 9: 导出与测试
+---
 
-##### Task 4.4: 一键导出
-- **功能**:
-  - ZIP 打包（包含 venv 配置说明）
-  - Dify YAML 格式导出
-  - 生成 README.md
+#### Task 3.4: Simulator 沙盘推演 [新增模块]
 
-##### Task 4.5: 全链路测试
-- **测试类型**:
-  - 单元测试：各模块独立测试
-  - 集成测试：模块间协作测试
-  - E2E 测试：完整流程测试
+**新增文件**: `src/core/simulator.py`
+
+```python
+class Simulator:
+    """沙盘推演器 - 在编译前验证图结构逻辑"""
+    
+    def __init__(self, llm_client: BuilderClient):
+        self.llm = llm_client
+    
+    async def simulate(
+        self,
+        graph: GraphStructure,
+        sample_input: str,
+        max_steps: int = 20
+    ) -> SimulationResult:
+        """
+        模拟执行图结构
+        
+        流程:
+        1. 初始化状态 (根据 state_schema)
+        2. 从 entry_point 开始
+        3. LLM 扮演每个节点，模拟执行
+        4. 根据条件边决定下一步
+        5. 检测是否达到终止条件或最大步数
+        """
+        pass
+    
+    def _check_termination(
+        self,
+        state: Dict,
+        step_count: int,
+        max_steps: int,
+        pattern: PatternConfig
+    ) -> bool:
+        """检查是否应该终止"""
+        pass
+    
+    def detect_issues(
+        self,
+        simulation_log: List[SimulationStep],
+        graph: GraphStructure
+    ) -> List[SimulationIssue]:
+        """
+        检测推演中的问题:
+        - 死循环 (同一节点连续访问 > 5 次)
+        - 不可达节点
+        - 缺失边
+        - 无效条件
+        """
+        pass
+    
+    def generate_mermaid_trace(
+        self,
+        simulation_log: List[SimulationStep],
+        graph: GraphStructure
+    ) -> str:
+        """生成推演轨迹的 Mermaid 图"""
+        pass
+    
+    def generate_readable_log(
+        self,
+        simulation_log: List[SimulationStep]
+    ) -> str:
+        """生成可读的执行轨迹文本"""
+        pass
+```
+
+**新增 Prompt**: `src/prompts/simulator.txt`
+
+---
+
+#### Task 3.5: Compiler 模板升级
+
+**修改文件**: `src/templates/agent_template.py.j2`
+
+```jinja2
+"""
+{{ agent_name }} - Auto-generated by Agent Zero
+Pattern: {{ pattern.pattern_type }}
+"""
+from typing import TypedDict, List, Optional, Annotated, Dict, Any
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
+
+# ==================== State Definition ====================
+{% if state_schema %}
+class AgentState(TypedDict):
+{% for field in state_schema.fields %}
+{% if field.reducer %}
+    {{ field.name }}: Annotated[{{ field.type }}, {{ field.reducer }}]{% if field.description %}  # {{ field.description }}{% endif %}
+{% else %}
+    {{ field.name }}: {{ field.type }}{% if field.description %}  # {{ field.description }}{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# ==================== Condition Functions ====================
+{% for edge in conditional_edges %}
+{% if edge.condition_logic %}
+def {{ edge.condition }}(state: AgentState) -> str:
+    """Auto-generated condition: {{ edge.condition }}"""
+    {{ edge.condition_logic | indent(4) }}
+{% endif %}
+{% endfor %}
+
+# ==================== Node Functions ====================
+{% for node in nodes %}
+def {{ node.id }}_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Node: {{ node.id }}
+    Type: {{ node.type }}
+    {% if node.role_description %}Role: {{ node.role_description }}{% endif %}
+    """
+    # TODO: Implement node logic
+    pass
+
+{% endfor %}
+
+# ==================== Graph Construction ====================
+def build_graph():
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+{% for node in nodes %}
+    workflow.add_node("{{ node.id }}", {{ node.id }}_node)
+{% endfor %}
+    
+    # Set entry point
+    workflow.set_entry_point("{{ entry_point }}")
+    
+    # Add edges
+{% for edge in edges %}
+    workflow.add_edge("{{ edge.source }}", "{{ edge.target }}")
+{% endfor %}
+    
+    # Add conditional edges
+{% for edge in conditional_edges %}
+    workflow.add_conditional_edges(
+        "{{ edge.source }}",
+        {{ edge.condition }},
+        {{ edge.branches }}
+    )
+{% endfor %}
+    
+    return workflow.compile()
+```
+
+---
+
+### 阶段四：闭环与进化 (Week 7-8)
+
+#### Task 4.1: Test Generator
+
+**文件**: `src/core/test_generator.py`
+
+- [ ] 基于 execution_plan 生成测试用例
+- [ ] 基于 RAG 文档生成 Fact-based 测试
+- [ ] 生成边界测试 (异常输入)
+
+#### Task 4.2: Runner 本地执行器
+
+**文件**: `src/core/runner.py`
+
+- [ ] 子进程管理
+- [ ] 环境变量注入
+- [ ] 超时控制
+- [ ] stdout/stderr 捕获
+
+#### Task 4.3: Judge 双重反馈
+
+**文件**: `src/core/judge.py`
+
+```python
+class ErrorType(str, Enum):
+    RUNTIME = "runtime"   # 语法错误、依赖缺失 -> Compiler
+    LOGIC = "logic"       # 死循环、答案错误 -> Graph_Designer
+    TIMEOUT = "timeout"
+    API = "api"
+
+class Judge:
+    def classify_error(self, stderr: str, test_results: List[TestResult]) -> ErrorType:
+        """分类错误类型"""
+        pass
+    
+    def determine_fix_target(self, error_type: ErrorType) -> Literal["compiler", "graph_designer", "none"]:
+        """确定修复目标"""
+        pass
+```
+
+#### Task 4.4: MCP 集成
+
+**文件**: `src/llm/mcp_client.py`
+
+- [ ] 查询 API 迁移指南
+- [ ] 获取最新版本
+- [ ] 本地缓存兜底
+
+#### Task 4.5: Git 版本管理
+
+**文件**: `src/utils/git_utils.py`
+
+- [ ] init_repo
+- [ ] commit
+- [ ] tag
+- [ ] rollback
+
+---
+
+### 阶段五：产品化 (Week 9-10)
+
+#### Task 5.1: UI 升级
+
+- [ ] 流式日志显示
+- [ ] 动态图谱可视化
+- [ ] Token 消耗统计
+- [ ] Blueprint Review UI
+
+#### Task 5.2: HITL 人工干预
+
+- [ ] 暂停执行
+- [ ] 查看/修改中间状态
+- [ ] 手动跳过节点
+- [ ] 继续执行
+
+#### Task 5.3: 导出功能
+
+- [ ] ZIP 打包
+- [ ] Dify YAML 格式导出
+- [ ] README 生成
 
 ---
 
@@ -742,18 +799,19 @@ class ExecutionResult(BaseModel):
 
 | 测试类型 | 运行命令 | 覆盖范围 |
 |:---------|:---------|:---------|
-| 单元测试 | `pytest tests/unit/ -v` | Schema 校验、工具函数 |
-| 集成测试 | `pytest tests/integration/ -v` | Compiler、Env Manager |
-| E2E 测试 | `pytest tests/e2e/ -v --timeout=300` | 完整生成流程 |
+| 单元测试 | `pytest tests/unit/ -v` | 所有模块 |
+| 集成测试 | `pytest tests/integration/ -v` | 模块协作 |
+| E2E 测试 | `pytest tests/e2e/ -v --timeout=300` | 完整流程 |
 
 ### 阶段验收标准
 
 | 阶段 | 验收标准 |
 |:-----|:---------|
-| Week 2 | 手写 JSON -> 编译 -> venv 运行 Hello World Agent |
-| Week 4 | 上传 PDF -> 自动生成 RAG Agent -> 能回答文档问题 |
-| Week 7 | 完整闭环：需求 -> 生成 -> 测试 -> 自动修复 -> 通过 |
-| Week 9 | UI 完整可用，一键导出 ZIP 包 |
+| Week 2 ✅ | 手写 JSON -> 编译 -> venv 运行 Hello World Agent |
+| Week 4 ✅ | 上传 PDF -> 自动生成 RAG Agent -> 能回答文档问题 |
+| Week 6 | PM 双脑模式 + 沙盘推演 -> 复杂任务能正确生成图结构 |
+| Week 8 | 完整闭环：需求 -> 生成 -> 测试 -> 自动修复 (双重反馈) |
+| Week 10 | UI 完整可用，一键导出 ZIP 包 |
 
 ---
 
@@ -763,22 +821,28 @@ class ExecutionResult(BaseModel):
 gantt
     title Agent Zero v6.0 开发路线图
     dateFormat  YYYY-MM-DD
-    section 阶段一
-    JSON Schema + Compiler     :a1, 2024-01-15, 7d
-    Env Manager + API 配置    :a2, after a1, 7d
-    section 阶段二
-    Profiler + RAG Builder    :a3, after a2, 7d
-    工具系统                   :a4, after a3, 7d
-    section 阶段三
-    测试闭环                   :a5, after a4, 7d
-    MCP 集成                   :a6, after a5, 7d
-    Git 版本管理               :a7, after a6, 7d
+    section 阶段一 ✅
+    JSON Schema + Compiler     :done, a1, 2026-01-10, 7d
+    Env Manager + API 配置    :done, a2, after a1, 7d
+    section 阶段二 ✅
+    Profiler + RAG Builder    :done, a3, after a2, 7d
+    工具系统 + PM/Designer基础 :done, a4, after a3, 7d
+    section 阶段三 🔄
+    Schema 升级              :active, a5, 2026-01-14, 3d
+    PM 双脑模式              :a6, after a5, 3d
+    Graph Designer 三步法    :a7, after a6, 4d
+    Simulator 沙盘推演       :a8, after a7, 4d
     section 阶段四
-    UI 开发                    :a8, after a7, 7d
-    导出 + 测试                :a9, after a8, 7d
+    Test Generator           :a9, after a8, 3d
+    Runner & Judge           :a10, after a9, 4d
+    MCP + Git               :a11, after a10, 3d
+    section 阶段五
+    UI 升级                 :a12, after a11, 5d
+    导出 + HITL             :a13, after a12, 5d
 ```
 
 ---
 
 > [!TIP]
-> **建议先从阶段一开始实施**，完成核心 MVP 后可以快速迭代。每个阶段结束时都应有可运行的交付物。
+> **当前进度**: 阶段一、阶段二已完成。正在进入阶段三（蓝图仿真系统），需要升级 PM 和 Graph Designer，并新增 Simulator 模块。
+

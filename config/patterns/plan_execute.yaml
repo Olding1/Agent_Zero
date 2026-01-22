@@ -1,0 +1,121 @@
+# Plan-Execute Pattern Configuration
+# 规划-执行模式 - 适用于长流程、多步骤的复杂任务
+
+name: plan_execute
+description: "规划-执行-重规划模式，先制定计划，执行后根据结果调整计划"
+
+# 默认节点配置
+default_nodes:
+  - id: planner
+    type: llm
+    role_description: "规划者，负责制定和调整任务执行计划"
+  
+  - id: executor
+    type: llm
+    role_description: "执行者，负责按计划执行具体步骤"
+  
+  - id: evaluator
+    type: llm
+    role_description: "评估者，负责检查执行结果并决定下一步"
+
+# 默认边配置
+default_edges:
+  - source: planner
+    target: executor
+  
+  - source: executor
+    target: evaluator
+
+# 默认条件边配置
+default_conditional_edges:
+  - source: evaluator
+    condition: decide_next_step
+    condition_logic: |
+      # 评估执行结果，决定下一步
+      plan_completed = state.get("plan_completed", False)
+      need_replan = state.get("need_replan", False)
+      current_step = state.get("current_step", 0)
+      total_steps = len(state.get("plan", []))
+      
+      if plan_completed:
+          return "end"
+      elif need_replan:
+          return "planner"  # 重新规划
+      elif current_step < total_steps:
+          return "executor"  # 继续执行
+      else:
+          return "end"
+    branches:
+      planner: planner
+      executor: executor
+      end: END
+
+# 必需的状态字段
+required_state_fields:
+  - name: messages
+    type: List[BaseMessage]
+    description: "对话历史"
+    reducer: add_messages
+  
+  - name: plan
+    type: List[str]
+    description: "任务执行计划（步骤列表）"
+    default: []
+  
+  - name: current_step
+    type: int
+    description: "当前执行步骤索引"
+    default: 0
+  
+  - name: execution_results
+    type: List[Dict[str, Any]]
+    description: "各步骤执行结果"
+    default: []
+  
+  - name: plan_completed
+    type: bool
+    description: "计划是否全部完成"
+    default: false
+  
+  - name: need_replan
+    type: bool
+    description: "是否需要重新规划"
+    default: false
+
+# 可选的状态字段
+optional_state_fields:
+  - name: plan_history
+    type: List[List[str]]
+    description: "规划历史（用于追踪计划变更）"
+    default: []
+  
+  - name: obstacles
+    type: List[str]
+    description: "遇到的障碍或问题"
+    default: []
+
+# 模式特性
+features:
+  - hierarchical_planning
+  - adaptive_execution
+  - dynamic_replanning
+  - step_by_step_progress
+
+# 适用场景
+use_cases:
+  - "复杂的多步骤任务"
+  - "需要动态调整的长流程"
+  - "项目管理类任务"
+  - "需要分解的大型任务"
+
+# 示例
+example:
+  user_query: "帮我规划并实施一个完整的数据分析项目"
+  expected_graph: "planner -> executor -> evaluator -> [planner/executor/END]"
+  expected_steps:
+    - "制定分析计划"
+    - "执行数据收集"
+    - "评估数据质量"
+    - "执行数据分析"
+    - "评估分析结果"
+    - "生成报告"

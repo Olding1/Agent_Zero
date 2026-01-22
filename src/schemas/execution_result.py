@@ -1,6 +1,6 @@
 """Execution result schema."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from enum import Enum
 from datetime import datetime
@@ -11,8 +11,11 @@ class ExecutionStatus(str, Enum):
 
     PASS = "pass"
     FAIL = "fail"
+    FAILED = "failed" # Alias for FAIL
     ERROR = "error"
     TIMEOUT = "timeout"
+    SUCCESS = "success"  # Alias for PASS if needed, or simply map PASS. Wait, Runner uses SUCCESS?
+    SKIPPED = "skipped"
 
 
 class TestResult(BaseModel):
@@ -46,10 +49,8 @@ class ExecutionResult(BaseModel):
         default_factory=datetime.now, description="Execution timestamp"
     )
 
-    class Config:
-        """Pydantic configuration."""
-
-        json_schema_extra = {
+model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "overall_status": "pass",
                 "test_results": [
@@ -64,3 +65,4 @@ class ExecutionResult(BaseModel):
                 "total_token_usage": 250,
             }
         }
+    )

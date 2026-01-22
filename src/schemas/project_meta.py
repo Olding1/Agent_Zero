@@ -1,7 +1,7 @@
 """Project metadata schema."""
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List, Literal
 from enum import Enum
 
 
@@ -13,6 +13,18 @@ class TaskType(str, Enum):
     ANALYSIS = "analysis"
     RAG = "rag"
     CUSTOM = "custom"
+
+
+class ExecutionStep(BaseModel):
+    """Execution plan step.
+    
+    Represents a single step in the hierarchical task breakdown.
+    """
+    
+    step: int = Field(..., description="Step number")
+    role: str = Field(..., description="Role name (Architect/Coder/Tester/etc)")
+    goal: str = Field(..., description="Step goal")
+    expected_output: Optional[str] = Field(None, description="Expected output")
 
 
 class ProjectMeta(BaseModel):
@@ -39,11 +51,21 @@ class ProjectMeta(BaseModel):
     clarification_questions: Optional[List[str]] = Field(
         default=None, description="List of clarification questions"
     )
+    
+    # New fields for PM dual-brain mode
+    status: Literal["clarifying", "ready"] = Field(
+        default="ready", description="PM analysis status"
+    )
+    complexity_score: int = Field(
+        default=1, ge=1, le=10, description="Task complexity score (1-10)"
+    )
+    execution_plan: Optional[List[ExecutionStep]] = Field(
+        default=None, description="Hierarchical task breakdown"
+    )
 
-    class Config:
-        """Pydantic configuration."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        use_enum_values=True,
+        json_schema_extra={
             "example": {
                 "agent_name": "StockBot",
                 "description": "Query and analyze stock information",
@@ -53,3 +75,4 @@ class ProjectMeta(BaseModel):
                 "user_intent_summary": "User wants to build a stock query assistant",
             }
         }
+    )

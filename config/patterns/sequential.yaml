@@ -1,0 +1,55 @@
+# Sequential Pattern Configuration
+# 顺序执行模式 - 适用于简单的线性任务
+
+name: sequential
+description: "顺序执行模式，适用于简单线性任务"
+
+# 默认节点配置
+default_nodes:
+  - id: agent
+    type: llm
+    role_description: "主要处理节点，负责理解用户需求并生成回答"
+
+# Sequential 模式默认没有条件边
+# 如果需要 RAG，会由 _add_rag_integration 添加 Router Pattern
+# 如果需要工具，会由 _add_tool_integration 添加相应逻辑
+default_conditional_edges: []
+
+# 必需的状态字段
+required_state_fields:
+  - name: messages
+    type: List[BaseMessage]
+    reducer: add_messages
+    description: "对话历史"
+  
+  - name: is_finished
+    type: bool
+    default: false
+    description: "是否完成任务"
+
+# 可选的状态字段
+optional_state_fields: []
+
+usage_scenarios:
+  - "简单的问答对话"
+  - "单次信息查询"
+  - "基础的文本处理"
+
+complexity_range: [1, 3]
+
+# 模式特性
+features:
+  - simple_flow
+  - single_agent
+  - minimal_state
+
+# 适用场景
+use_cases:
+  - "简单问答"
+  - "单步任务执行"
+  - "基础对话"
+
+# 示例
+example:
+  user_query: "帮我总结一下这段文字"
+  expected_graph: "agent -> END"
