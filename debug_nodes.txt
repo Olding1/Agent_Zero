@@ -1,3 +1,0 @@
-Nodes: ['planner', 'executor', 'evaluator', 'tool_tavily_search', 'tool_duckduckgo_search', 'tool_arxiv_search', 'tool_google_search', 'tool_bing_search']
-Cond Edges: [{'src': 'evaluator', 'branches': {'planner': 'planner', 'executor': 'executor', 'end': 'END'}}, {'src': 'executor', 'branches': {'tavily_search': 'tool_tavily_search', 'duckduckgo_search': 'tool_duckduckgo_search', 'arxiv_search': 'tool_arxiv_search', 'google_search': 'tool_google_search', 'bing_search': 'tool_bing_search', 'replanner': 'replanner'}}]
-Edges: ['planner->executor', 'executor->evaluator', 'tool_tavily_search->executor', 'tool_duckduckgo_search->executor', 'tool_arxiv_search->executor', 'tool_google_search->executor', 'tool_bing_search->executor']

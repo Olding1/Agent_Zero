@@ -299,6 +299,17 @@ class GraphDesigner:
                  conditional_edges = self._inject_executor_tool_routing(
                     conditional_edges, tools_config
                  )
+        else:
+            # 🆕 No tools - clean up any tool-related conditional edges
+            # Remove branches pointing to 'tools' placeholder
+            for edge in conditional_edges:
+                branches_to_remove = []
+                for key, target in edge.branches.items():
+                    if target == "tools":
+                        branches_to_remove.append(key)
+                
+                for key in branches_to_remove:
+                    del edge.branches[key]
         
         # 🆕 v7.2: 如果有 RAG,Entry Point 应该是 intent_router
         entry_point = template.get("entry_point", nodes[0].id if nodes else "agent")
